@@ -1,0 +1,85 @@
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '3.5.14'
+    id 'io.spring.dependency-management' version '1.1.7'
+}
+
+group = 'com.pairing'
+version = '0.0.1-SNAPSHOT'
+description = 'pairing-admin'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    // 웹 / 검증 / 영속성
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+    runtimeOnly 'org.postgresql:postgresql'
+
+    // 인증 / 인가 (세션 로그인)
+    implementation 'org.springframework.boot:spring-boot-starter-security'
+
+    // S3 (백엔드와 같은 버킷을 공유한다)
+    implementation 'software.amazon.awssdk:s3:2.25.11'
+
+    // 헬스체크
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+
+    // API 문서 (Swagger UI)
+    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.16'
+
+    compileOnly 'org.projectlombok:lombok'
+    annotationProcessor 'org.projectlombok:lombok'
+
+    developmentOnly 'org.springframework.boot:spring-boot-devtools'
+
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.springframework.security:spring-security-test'
+    // 테스트는 인메모리 DB로 돈다. 실제 RDS를 건드리지 않기 위해서다.
+    // (스키마는 백엔드가 단일 소스라, 테스트에서만 엔티티로부터 생성한다)
+    testRuntimeOnly 'com.h2database:h2'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    testCompileOnly 'org.projectlombok:lombok'
+    testAnnotationProcessor 'org.projectlombok:lombok'
+}
+
+// 소스에 한글 주석·문자열이 들어가므로 인코딩을 명시한다.
+// Java 17은 플랫폼 기본 인코딩을 쓰기 때문에, 지정하지 않으면 개발자 OS 설정에 따라
+// 다른 장비에서 컴파일할 때 한글이 깨질 수 있다.
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+    // 백엔드 프로젝트와 동일하게 JVM 타임존을 KST로 고정한다.
+    systemProperty 'user.timezone', 'Asia/Seoul'
+    testLogging {
+        exceptionFormat = 'full'
+    }
+}
+
+// 배포 산출물 이름을 고정한다. (CI에서 app.jar 로 복사해 Dockerfile이 집어간다)
+tasks.named('bootJar') {
+    archiveFileName = 'pairing-admin.jar'
+}
+
+tasks.named('bootRun') {
+    // Java 17은 콘솔 출력에 OS 기본 인코딩(윈도우는 cp949)을 쓴다.
+    // 지정하지 않으면 한글 로그가 깨져서 나온다. (배포 컨테이너는 UTF-8이라 문제없다)
+    jvmArgs = [
+            '-Dfile.encoding=UTF-8',
+            '-Dsun.stdout.encoding=UTF-8',
+            '-Dsun.stderr.encoding=UTF-8',
+            '-Duser.timezone=Asia/Seoul'
+    ]
+}
