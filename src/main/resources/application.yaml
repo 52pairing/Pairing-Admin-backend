@@ -32,7 +32,7 @@ spring:
       # 백엔드의 db/init/02-create-schema.sql 이며, 관리자 서버가 DDL을 건드리면
       # 두 서버가 스키마를 두고 경쟁하게 된다.
       # (엔티티와 테이블이 어긋나면 기동이 실패한다 — 그게 의도한 동작이다)
-      ddl-auto: validate
+      ddl-auto: update
     properties:
       hibernate:
         format_sql: true
