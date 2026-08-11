@@ -73,6 +73,55 @@ tasks.named('bootJar') {
     archiveFileName = 'pairing-admin.jar'
 }
 
+/**
+ * 프로젝트 루트의 .env 를 읽어 Map 으로 돌려준다. 파일이 없으면 빈 Map.
+ *
+ * 스프링 부트는 .env 를 스스로 읽지 않는다. 쉘마다 주입 방법이 달라서
+ * (bash 는 `set -a; source .env`, PowerShell 은 별도 스크립트) 매번 헷갈리므로
+ * 빌드 스크립트가 대신 읽어 bootRun 의 환경변수로 넣어 준다.
+ *
+ * 지원 형식
+ *   KEY=value          # 주석
+ *   export KEY=value   (앞의 export 는 무시한다)
+ *   KEY="value"        (감싼 따옴표는 벗겨 낸다)
+ *
+ * 값 안의 #은 주석으로 보지 않는다. 비밀번호에 #이 들어가는 경우가 흔하기 때문이다.
+ */
+def loadDotEnv() {
+    def envFile = rootProject.file('.env')
+    if (!envFile.exists()) {
+        return [:]
+    }
+
+    def result = [:]
+    envFile.eachLine('UTF-8') { rawLine ->
+        def line = rawLine.trim()
+        if (line.isEmpty() || line.startsWith('#')) {
+            return
+        }
+        if (line.startsWith('export ')) {
+            line = line.substring('export '.length()).trim()
+        }
+
+        def separator = line.indexOf('=')
+        if (separator <= 0) {
+            return
+        }
+
+        def key = line.substring(0, separator).trim()
+        def value = line.substring(separator + 1).trim()
+
+        if (value.length() >= 2
+                && ((value.startsWith('"') && value.endsWith('"'))
+                || (value.startsWith("'") && value.endsWith("'")))) {
+            value = value.substring(1, value.length() - 1)
+        }
+
+        result[key] = value
+    }
+    return result
+}
+
 tasks.named('bootRun') {
     // Java 17은 콘솔 출력에 OS 기본 인코딩(윈도우는 cp949)을 쓴다.
     // 지정하지 않으면 한글 로그가 깨져서 나온다. (배포 컨테이너는 UTF-8이라 문제없다)
@@ -82,4 +131,14 @@ tasks.named('bootRun') {
             '-Dsun.stderr.encoding=UTF-8',
             '-Duser.timezone=Asia/Seoul'
     ]
+
+    // .env 값이 쉘 환경변수보다 우선한다.
+    // Gradle 데몬은 한 번 뜨면 예전 실행의 환경변수를 그대로 들고 있어서,
+    // 쉘 쪽을 우선하면 "예전에 한 번 넣었던 값"이 계속 이기는 일이 생긴다.
+    // .env 파일이 눈에 보이는 단일 기준이 되도록 이쪽을 우선한다.
+    def dotEnv = loadDotEnv()
+    if (!dotEnv.isEmpty()) {
+        logger.lifecycle("[bootRun] .env 에서 ${dotEnv.size()}개 환경변수를 읽었습니다: ${dotEnv.keySet().sort().join(', ')}")
+        environment dotEnv
+    }
 }

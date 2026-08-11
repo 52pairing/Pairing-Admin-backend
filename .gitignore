@@ -1,11 +1,22 @@
-HELP.md
-.gradle
-build/
-!gradle/wrapper/gradle-wrapper.jar
-!**/src/main/**/build/
-!**/src/test/**/build/
+# =====================================================================
+# 주의: 디렉터리 패턴은 반드시 맨 앞에 / 를 붙여 "프로젝트 루트"로 한정한다.
+#
+#   out/   -> 이름이 out 인 디렉터리를 <모든 경로에서> 무시한다.
+#             그래서 src/.../global/port/out/ 패키지가 통째로 커밋되지 않는다.
+#   /out/  -> 프로젝트 루트의 out 만 무시한다. (IntelliJ 출력 폴더)
+#
+# 실제로 이 문제로 FileStoragePort.java 가 빠져서 EC2 빌드가 실패한 적이 있다.
+# build, bin, out, logs 같은 흔한 이름은 자바 패키지명과 겹치기 쉬우니 항상 / 로 시작할 것.
+# =====================================================================
 
-### STS ###
+HELP.md
+
+### Gradle ###
+/.gradle/
+/build/
+!gradle/wrapper/gradle-wrapper.jar
+
+### STS / Eclipse ###
 .apt_generated
 .classpath
 .factorypath
@@ -13,14 +24,14 @@ build/
 .settings
 .springBeans
 .sts4-cache
-bin/
+/bin/
 
 ### IntelliJ IDEA ###
 .idea
 *.iws
 *.iml
 *.ipr
-out/
+/out/
 
 ### VS Code ###
 .vscode/
@@ -31,5 +42,5 @@ out/
 !application-local.yaml
 
 ### 로그 ###
-logs/
+/logs/
 *.log
