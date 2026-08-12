@@ -6,6 +6,7 @@ import com.pairing.admin.negotiation.domain.ConditionType;
 import com.pairing.admin.negotiation.domain.ConditionValueLabels;
 import com.pairing.admin.negotiation.domain.NegotiationStatus;
 import com.pairing.admin.negotiation.exception.NegotiationAdminErrorCode;
+import com.pairing.admin.negotiation.infrastructure.persistence.AiAgentLogAdminRepository;
 import com.pairing.admin.negotiation.infrastructure.persistence.NegotiationAdminRepository;
 import com.pairing.admin.negotiation.infrastructure.persistence.NegotiationConditionAdminRepository;
 import com.pairing.admin.negotiation.infrastructure.persistence.NegotiationConditionJpaEntity;
@@ -14,6 +15,7 @@ import com.pairing.admin.negotiation.infrastructure.persistence.NegotiationMessa
 import com.pairing.admin.negotiation.presentation.api.response.NegotiationDetailResponse;
 import com.pairing.admin.negotiation.presentation.api.response.NegotiationListItemResponse;
 import com.pairing.admin.negotiation.presentation.api.response.NegotiationSummaryResponse;
+import com.pairing.admin.negotiation.presentation.api.response.NegotiationTokenUsageResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
@@ -40,6 +42,7 @@ public class NegotiationAdminService {
     private final NegotiationAdminRepository negotiationAdminRepository;
     private final NegotiationConditionAdminRepository conditionRepository;
     private final NegotiationMessageAdminRepository messageRepository;
+    private final AiAgentLogAdminRepository aiAgentLogRepository;
 
     /** 상단 카드 집계. */
     @Transactional(readOnly = true)
@@ -110,6 +113,32 @@ public class NegotiationAdminService {
                 header.getTotalRound() == null ? 0 : header.getTotalRound(),
                 toFinalResult(conditions),
                 toRounds(negotiationId, conditions));
+    }
+
+    /**
+     * 토큰 사용량 탭.
+     *
+     * <p>협상 로그 탭과 <b>같은 화면의 다른 탭</b>이라 별도 엔드포인트로 뺐다. 상세 응답에
+     * 합치지 않은 이유는, 라운드별 대화만 보려는 관리자가 매번 로그 표까지 같이 읽게 되기
+     * 때문이다. 협상 한 건이 부르는 모델 호출은 라운드마다 쌓여서 적지 않다.
+     *
+     * <p>호출 기록이 없어도 정상이다 — 대리인이 아직 안 돈 협상이거나, 파이썬이 로그 INSERT 에
+     * 실패한 경우다(파이썬은 <b>로그 실패로 본 기능을 죽이지 않는다</b>). 그래서 여기서도
+     * 빈 목록을 그대로 내보내고 예외로 만들지 않는다.
+     *
+     * <p>다만 <b>협상 존재 여부는 확인한다.</b> 없는 ID 로 부르면 빈 사용량이 내려가서, 관리자가
+     * "이 협상은 AI 를 안 썼구나"로 잘못 읽는다.
+     */
+    @Transactional(readOnly = true)
+    public NegotiationTokenUsageResponse getTokenUsage(Long negotiationId) {
+        if (negotiationAdminRepository.findById(negotiationId).isEmpty()) {
+            throw new BusinessException(NegotiationAdminErrorCode.NEGOTIATION_NOT_FOUND);
+        }
+
+        return NegotiationTokenUsageResponse.from(
+                negotiationId,
+                aiAgentLogRepository.findUsage(negotiationId),
+                aiAgentLogRepository.findCalls(negotiationId));
     }
 
     /**
