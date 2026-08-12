@@ -9,6 +9,8 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 
 /**
  * AI 협상 상세 — "토큰 사용량" 탭.
@@ -32,6 +34,9 @@ public record NegotiationTokenUsageResponse(
         @Schema(description = "상단 카드 집계")
         Usage usage,
 
+        @Schema(description = "라운드별 사용량(라운드 오름차순). 막대 차트용")
+        List<RoundUsage> byRound,
+
         @Schema(description = "모델 호출 목록(시간 오름차순). 대리인이 아직 안 돌았으면 빈 배열")
         List<Call> calls
 ) {
@@ -39,10 +44,12 @@ public record NegotiationTokenUsageResponse(
     public static NegotiationTokenUsageResponse from(Long negotiationId,
                                                      AiAgentLogAdminRepository.UsageRow usage,
                                                      List<AiAgentLogAdminRepository.CallRow> calls) {
+        List<Call> mapped = calls.stream().map(Call::from).toList();
         return new NegotiationTokenUsageResponse(
                 negotiationId,
                 Usage.from(usage),
-                calls.stream().map(Call::from).toList());
+                RoundUsage.of(mapped),
+                mapped);
     }
 
     /**
@@ -114,6 +121,69 @@ public record NegotiationTokenUsageResponse(
                 return 0d;
             }
             return BigDecimal.valueOf(value).setScale(1, RoundingMode.HALF_UP).doubleValue();
+        }
+    }
+
+    /**
+     * 라운드 1개의 사용량. "라운드별 사용량" 막대 차트가 이걸 그대로 쓴다.
+     *
+     * <p><b>라운드를 모르는 호출은 빠진다.</b> 라운드 번호는 별도 컬럼이 아니라 AI 서버가 보낸
+     * 요청 본문에서 꺼내는 값이라, 안 실어 보낸 호출은 비어 있다. 그런 호출을 "0라운드" 같은
+     * 가짜 묶음에 넣으면 차트에 없는 라운드가 생긴다. 대신 전체 합계({@link Usage})에는 들어가므로
+     * <b>라운드 막대의 합이 상단 카드 합계보다 작을 수 있다</b> — 그 차이가 곧 "라운드를 모르는
+     * 호출"의 양이다.
+     */
+    @Schema(description = "라운드별 사용량")
+    public record RoundUsage(
+
+            @Schema(description = "라운드 번호", example = "1")
+            int roundNo,
+
+            @Schema(description = "이 라운드의 모델 호출 수", example = "2")
+            int calls,
+
+            @Schema(description = "입력 토큰 합계", example = "2920")
+            long promptTokens,
+
+            @Schema(description = "출력 토큰 합계", example = "1580")
+            long outputTokens,
+
+            @Schema(description = "총 토큰(입력+출력)", example = "4500")
+            long totalTokens
+    ) {
+
+        /**
+         * 호출 목록을 라운드로 묶는다.
+         *
+         * <p>합계에서는 값이 없는 토큰을 0 으로 본다(SQL {@code SUM} 과 같은 규칙). 줄 단위
+         * 표시에서 null 을 유지하는 것과 다른데, 합계는 "모르면 안 더한다"가 맞고 표시는
+         * "모르면 모른다고 그린다"가 맞기 때문이다.
+         */
+        static List<RoundUsage> of(List<Call> calls) {
+            Map<Integer, RoundUsage> byRound = new TreeMap<>();
+            for (Call call : calls) {
+                if (call.roundNo() == null) {
+                    continue;
+                }
+                byRound.merge(call.roundNo(),
+                        new RoundUsage(call.roundNo(), 1,
+                                zeroIfNull(call.promptTokens()), zeroIfNull(call.outputTokens()),
+                                zeroIfNull(call.promptTokens()) + zeroIfNull(call.outputTokens())),
+                        RoundUsage::plus);
+            }
+            return List.copyOf(byRound.values());
+        }
+
+        private RoundUsage plus(RoundUsage other) {
+            return new RoundUsage(this.roundNo,
+                    this.calls + other.calls,
+                    this.promptTokens + other.promptTokens,
+                    this.outputTokens + other.outputTokens,
+                    this.totalTokens + other.totalTokens);
+        }
+
+        private static long zeroIfNull(Integer value) {
+            return value == null ? 0L : value;
         }
     }
 
