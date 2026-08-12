@@ -4,6 +4,7 @@ import com.pairing.admin.global.common.api.response.PageResponse;
 import com.pairing.admin.global.exception.BusinessException;
 import com.pairing.admin.negotiation.domain.ConditionType;
 import com.pairing.admin.negotiation.domain.ConditionValueLabels;
+import com.pairing.admin.negotiation.domain.NegotiationNo;
 import com.pairing.admin.negotiation.domain.NegotiationStatus;
 import com.pairing.admin.negotiation.exception.NegotiationAdminErrorCode;
 import com.pairing.admin.negotiation.infrastructure.persistence.AiAgentLogAdminRepository;
@@ -101,7 +102,7 @@ public class NegotiationAdminService {
 
         return new NegotiationDetailResponse(
                 header.getNegotiationId(),
-                negotiationNo(header),
+                NegotiationNo.of(header.getNegotiationId(), header.getStartedAt()),
                 header.getProjectId(),
                 header.getProjectTitle(),
                 header.getClientName(),
@@ -139,18 +140,6 @@ public class NegotiationAdminService {
                 negotiationId,
                 aiAgentLogRepository.findUsage(negotiationId),
                 aiAgentLogRepository.findCalls(negotiationId));
-    }
-
-    /**
-     * 화면 표시용 협상번호.
-     *
-     * <p><b>저장된 값이 아니다.</b> 협상 테이블에 그런 컬럼이 없어서 ID 와 시작 연도로 만든
-     * 표기이고, 계약번호({@code contract_no}) 처럼 채번된 식별자가 아니다. 외부에 노출하거나
-     * 조회 키로 쓰면 안 된다 — 필요해지면 백엔드에 컬럼을 만드는 게 맞다.
-     */
-    private String negotiationNo(NegotiationAdminRepository.ListRow header) {
-        int year = header.getStartedAt() == null ? 0 : header.getStartedAt().getYear();
-        return "NEG-%d-%03d".formatted(year, header.getNegotiationId());
     }
 
     /**
