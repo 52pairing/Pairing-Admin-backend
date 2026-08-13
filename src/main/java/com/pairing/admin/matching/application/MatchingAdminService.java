@@ -135,10 +135,23 @@ public class MatchingAdminService {
         pythonEmbeddingClient.upsertPosition(positionId, text);
     }
 
+    /**
+     * AI 서버가 받는 상한({@code text: max_length=20000}). 넘겨서 보내면 422로 거절당하는데 재색인은
+     * 예외를 잡아 로그만 남기므로 <b>아무도 모르게 실패</b>한다. 경력 건수에 상한이 없어서 실제로
+     * 넘길 수 있다. 본서버 {@code FreelancerEmbeddingTextBuilder}와 같은 값이어야 한다.
+     */
+    private static final int MAX_TEXT_LENGTH = 20_000;
+
+    /**
+     * 본서버 {@code FreelancerEmbeddingTextBuilder.buildText}와 <b>같은 결과가 나와야 한다.</b>
+     * 조각을 개행으로 잇고, 비어 있는 조각은 빼고, 상한에서 자른다. 여기가 갈리면 어느 경로로
+     * 재색인했느냐에 따라 같은 사람의 벡터가 달라진다.
+     */
     private static String buildText(List<String> parts) {
-        return parts.stream()
+        String text = parts.stream()
                 .filter(value -> value != null && !value.isBlank())
                 .reduce((left, right) -> left + "\n" + right)
                 .orElse("");
+        return text.length() > MAX_TEXT_LENGTH ? text.substring(0, MAX_TEXT_LENGTH) : text;
     }
 }

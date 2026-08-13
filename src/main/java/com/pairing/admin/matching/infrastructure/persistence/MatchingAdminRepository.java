@@ -171,19 +171,33 @@ public class MatchingAdminRepository {
                 """, (rs, rowNum) -> new PositionRef(rs.getLong("project_id"), rs.getLong("position_id")));
     }
 
+    /**
+     * 프리랜서 임베딩 원문 조각. <b>본서버({@code FreelancerEmbeddingTextBuilder})와 같은 텍스트가
+     * 나와야 한다.</b>
+     *
+     * <p>담는 것은 <b>자기소개 + 학과 전부 + 경력 담당업무</b> 셋뿐이다. 조건(직군·직무·근무방식·단가·
+     * 연차·스킬)은 <b>일부러 넣지 않는다</b> - 2026-08-11 재설계로 임베딩에서 전부 빠졌다. 임베딩은
+     * 숫자의 크기를 비교하지 못하고 연차는 방향이 반대로 작동해서(포지션이 "3년 이상"이면 숫자가
+     * 같은 "3년"이 "10년"보다 가깝게 나온다) DB 조건점수가 처리한다.
+     *
+     * <p>여기와 본서버가 다른 텍스트를 만들면 <b>어느 경로로 재색인했느냐에 따라 같은 사람의 벡터가
+     * 달라진다.</b> source_hash도 갈려서 서로 스킵하지 않고 계속 덮어쓰고, 포지션 벡터와 짝이 맞지
+     * 않아 유사도 자체가 무의미해진다. 한쪽을 고치면 반드시 다른 쪽도 고칠 것.
+     *
+     * <p>{@code resume_education}/{@code resume_career}는 element collection 테이블이라 {@code id}
+     * 컬럼이 없다. 정렬은 {@code sort_order}로만 한다(2026-08-13 실제 스키마 확인).
+     */
     public List<String> findFreelancerEmbeddingSource(Long freelancerId) {
-        Optional<ResumeRef> resume = findLatestCompletedResume(freelancerId);
         List<String> parts = new ArrayList<>();
-        parts.addAll(findFreelancerConditionSource(freelancerId));
-        resume.ifPresent(ref -> {
+        findLatestCompletedResume(freelancerId).ifPresent(ref -> {
             parts.add(ref.selfIntroduction());
             parts.addAll(jdbcTemplate.queryForList(
-                    "SELECT major FROM resume_education WHERE resume_id = ? ORDER BY sort_order, id",
+                    "SELECT major FROM resume_education WHERE resume_id = ? ORDER BY sort_order",
                     String.class,
                     ref.resumeId()
             ));
             parts.addAll(jdbcTemplate.queryForList(
-                    "SELECT job_description FROM resume_career WHERE resume_id = ? ORDER BY sort_order, id",
+                    "SELECT job_description FROM resume_career WHERE resume_id = ? ORDER BY sort_order",
                     String.class,
                     ref.resumeId()
             ));
@@ -513,7 +527,7 @@ public class MatchingAdminRepository {
                   JOIN resume r ON r.account_id = fp.account_id
                  WHERE fp.id = ?
                    AND r.status = 'COMPLETED'
-                 ORDER BY r.completed_at DESC NULLS LAST, r.id DESC
+                 ORDER BY r.updated_at DESC NULLS LAST, r.id DESC
                  LIMIT 1
                 """, (rs, rowNum) -> new ResumeRef(
                 rs.getLong("id"),
@@ -521,46 +535,6 @@ public class MatchingAdminRepository {
         ), freelancerId);
     }
 
-    private List<String> findFreelancerConditionSource(Long freelancerId) {
-        return jdbcTemplate.query("""
-                SELECT fc.job_category,
-                       fc.job_role,
-                       fc.work_style,
-                       fc.work_form,
-                       fc.pay_unit,
-                       fc.pay_amount,
-                       fc.min_accept_amount,
-                       fc.available_from,
-                       fc.period_value,
-                       fc.period_unit,
-                       fc.career_years,
-                       cs.skill_code,
-                       cs.skill_level
-                  FROM freelancer_profile fp
-                  JOIN freelancer_condition fc ON fc.account_id = fp.account_id
-                  LEFT JOIN condition_skill cs ON cs.condition_id = fc.id
-                 WHERE fp.id = ?
-                 ORDER BY cs.skill_code
-                """, rs -> {
-            List<String> parts = new ArrayList<>();
-            while (rs.next()) {
-                parts.add(rs.getString("job_category"));
-                parts.add(rs.getString("job_role"));
-                parts.add(rs.getString("work_style"));
-                parts.add(rs.getString("work_form"));
-                parts.add(rs.getString("pay_unit"));
-                parts.add(String.valueOf(rs.getObject("pay_amount")));
-                parts.add(String.valueOf(rs.getObject("min_accept_amount")));
-                parts.add(String.valueOf(rs.getObject("available_from")));
-                parts.add(String.valueOf(rs.getObject("period_value")));
-                parts.add(rs.getString("period_unit"));
-                parts.add(String.valueOf(rs.getObject("career_years")));
-                parts.add(rs.getString("skill_code"));
-                parts.add(rs.getString("skill_level"));
-            }
-            return parts;
-        }, freelancerId);
-    }
 
     private RowMapper<EmbeddingMissingResponse.Item> missingItemMapper() {
         return (rs, rowNum) -> new EmbeddingMissingResponse.Item(
