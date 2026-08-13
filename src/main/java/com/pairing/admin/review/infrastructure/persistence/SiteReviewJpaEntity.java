@@ -51,7 +51,7 @@ public class SiteReviewJpaEntity {
     @Column(name = "score", nullable = false)
     private int score;
 
-    @Column(name = "content", length = 1000)
+    @Column(name = "content", length = 500)
     private String content;
 
     @Enumerated(EnumType.STRING)

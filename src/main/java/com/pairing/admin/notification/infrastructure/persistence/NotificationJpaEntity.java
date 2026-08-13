@@ -40,13 +40,13 @@ public class NotificationJpaEntity {
     @Column(name = "type", nullable = false, length = 30)
     private String type;
 
-    @Column(name = "title", nullable = false, length = 100)
+    @Column(name = "title", nullable = false, length = 200)
     private String title;
 
     @Column(name = "content", length = 500)
     private String content;
 
-    @Column(name = "link_url", length = 255)
+    @Column(name = "link_url", length = 300)
     private String linkUrl;
 
     @Column(name = "read", nullable = false)
