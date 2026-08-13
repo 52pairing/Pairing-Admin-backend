@@ -10,11 +10,10 @@ import org.springframework.http.HttpStatus;
 public enum SiteReviewErrorCode implements BaseErrorCode {
 
     SITE_REVIEW_NOT_FOUND(HttpStatus.NOT_FOUND, "ADMIN_REVIEW_001",
-            "사이트 리뷰를 찾을 수 없습니다."),
+            "사이트 리뷰를 찾을 수 없습니다.");
 
-    /** 비공개인데 홍보 활용은 성립하지 않는다. 메인에 노출될 수 없는 후기를 홍보로 골라두면 조합만 어긋난다. */
-    CANNOT_PROMOTE_PRIVATE(HttpStatus.BAD_REQUEST, "ADMIN_REVIEW_002",
-            "비공개 리뷰는 홍보로 활용할 수 없습니다. 먼저 공개로 변경해 주세요.");
+    // ADMIN_REVIEW_002(비공개 리뷰는 홍보 불가)는 공개/비공개 개념을 없애면서 사라졌다.
+    // 번호는 재사용하지 않는다 — 프론트에 남아 있는 옛 분기가 엉뚱한 메시지를 띄운다.
 
     private final HttpStatus status;
     private final String code;

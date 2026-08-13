@@ -1,7 +1,6 @@
 package com.pairing.admin.review.presentation.api.response;
 
 import com.pairing.admin.review.domain.PartyRole;
-import com.pairing.admin.review.domain.SiteReviewVisibility;
 import com.pairing.admin.review.infrastructure.persistence.SiteReviewJpaEntity;
 import io.swagger.v3.oas.annotations.media.Schema;
 
@@ -37,10 +36,7 @@ public record SiteReviewRowResponse(
         @Schema(description = "대상 프로젝트명. 프로젝트가 지워졌으면 null", example = "쇼핑몰 관리자 페이지")
         String projectTitle,
 
-        @Schema(description = "PRIVATE(비공개) / PUBLIC(공개)", example = "PUBLIC")
-        SiteReviewVisibility visibility,
-
-        @Schema(description = "홍보 활용 여부", example = "true")
+        @Schema(description = "홍보 활용 여부. true 면 메인 노출 후보", example = "true")
         boolean promoted,
 
         @Schema(description = "작성일", example = "2026-08-01T09:30:00")
@@ -56,7 +52,6 @@ public record SiteReviewRowResponse(
                 review.getScore(),
                 review.getContent(),
                 projectTitle,
-                review.getVisibility(),
                 review.isPromoted(),
                 review.getCreatedAt());
     }

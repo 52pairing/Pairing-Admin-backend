@@ -3,7 +3,6 @@ package com.pairing.admin.review.application;
 import com.pairing.admin.global.common.api.response.PageResponse;
 import com.pairing.admin.global.exception.BusinessException;
 import com.pairing.admin.review.domain.PartyRole;
-import com.pairing.admin.review.domain.SiteReviewVisibility;
 import com.pairing.admin.review.exception.SiteReviewErrorCode;
 import com.pairing.admin.review.infrastructure.persistence.SiteReviewJpaEntity;
 import com.pairing.admin.review.infrastructure.persistence.SiteReviewJpaRepository;
@@ -28,8 +27,12 @@ import java.util.stream.Collectors;
 /**
  * 사이트 리뷰 관리. (관리자 &gt; 사이트 리뷰 관리)
  *
- * <p>백엔드와 같은 site_review 테이블을 쓴다. 후기 작성·삭제는 하지 않고 공개·홍보 여부만 바꾼다.
- * 여기서 공개로 바꾸면 비로그인 메인 노출 대상이 되므로, 이 서비스의 실수가 곧 대외 노출이다.
+ * <p>백엔드와 같은 site_review 테이블을 쓴다. 후기 작성·삭제는 하지 않고 <b>홍보 활용 여부만</b> 바꾼다.
+ * 여기서 홍보를 켜면 비로그인 메인 노출 대상이 되므로, 이 서비스의 실수가 곧 대외 노출이다.
+ *
+ * <p>공개/비공개는 두지 않는다. 후기 원문은 이 관리 화면 밖으로 나가지 않고 사용자가 보는 것은
+ * 홍보로 고른 후기와 평균 별점뿐이라, 홍보를 끄면 이미 안 보인다. 그 위에 공개 여부를 또 두면
+ * 아무것도 바꾸지 않는 스위치가 하나 늘고 어긋난 조합까지 관리해야 한다.
  */
 @Slf4j
 @Service
@@ -41,7 +44,7 @@ public class SiteReviewAdminService {
 
     private final SiteReviewJpaRepository siteReviewJpaRepository;
 
-    /** 요약 카드 6개 + 별점 분포. 모두 필터와 무관한 전체 기준이다. */
+    /** 요약 카드 5개 + 별점 분포. 모두 필터와 무관한 전체 기준이다. */
     @Transactional(readOnly = true)
     public SiteReviewSummaryResponse getSummary() {
         LocalDateTime monthStart = LocalDateTime.now().withDayOfMonth(1).toLocalDate().atStartOfDay();
@@ -56,12 +59,11 @@ public class SiteReviewAdminService {
                 siteReviewJpaRepository.countByCreatedAtAfter(monthStart),
                 promotedCount,
                 totalCount - promotedCount,
-                siteReviewJpaRepository.countByVisibility(SiteReviewVisibility.PUBLIC),
                 scoreDistribution());
     }
 
     /**
-     * 별점·작성자 구분·공개 여부·홍보 여부로 걸러낸다. keyword 는 회원명·내용·프로젝트명을 함께 검색한다.
+     * 별점·작성자 구분·홍보 여부로 걸러낸다. keyword 는 회원명·내용·프로젝트명을 함께 검색한다.
      *
      * <p>작성자명과 프로젝트명은 site_review 에 없어서, 검색어에 걸리는 id 를 먼저 찾아
      * {@code IN} 조건으로 넘긴다. 검색어를 넣을 때만 두 번의 추가 조회가 생긴다.
@@ -70,14 +72,12 @@ public class SiteReviewAdminService {
      * 조회 전용 뷰나 검색 컬럼을 두는 쪽으로 바꿔야 한다.
      */
     @Transactional(readOnly = true)
-    public PageResponse<SiteReviewRowResponse> search(Integer score, PartyRole writerRole,
-                                                      SiteReviewVisibility visibility, Boolean promoted,
+    public PageResponse<SiteReviewRowResponse> search(Integer score, PartyRole writerRole, Boolean promoted,
                                                       String keyword, Pageable pageable) {
 
         Specification<SiteReviewJpaEntity> spec = Specification.allOf(
                 SiteReviewSpecs.scoreEquals(score),
                 SiteReviewSpecs.writerRoleEquals(writerRole),
-                SiteReviewSpecs.visibilityEquals(visibility),
                 SiteReviewSpecs.promotedEquals(promoted),
                 SiteReviewSpecs.keywordMatches(keyword, matchingAccountIds(keyword), matchingProjectIds(keyword)));
 
@@ -94,28 +94,17 @@ public class SiteReviewAdminService {
                 projectTitles.get(review.getProjectId())));
     }
 
-    /**
-     * 공개·홍보 설정을 바꾼다.
-     *
-     * <p>비공개 + 홍보 활용은 막는다. 메인에 나갈 수 없는 후기를 홍보로 골라두면, 나중에 공개로
-     * 바꾸는 순간 검수 없이 홍보에 실린다.
-     */
+    /** 홍보 활용 여부를 바꾼다. 켜면 메인 노출 후보가 되고, 끄면 사용자에게 보이지 않는다. */
     @Transactional
-    public SiteReviewRowResponse updateVisibility(Long siteReviewId, SiteReviewVisibility visibility,
-                                                  boolean promoted, Long actorAdminId) {
-
-        if (visibility == SiteReviewVisibility.PRIVATE && promoted) {
-            throw new BusinessException(SiteReviewErrorCode.CANNOT_PROMOTE_PRIVATE);
-        }
-
+    public SiteReviewRowResponse updatePromotion(Long siteReviewId, boolean promoted, Long actorAdminId) {
         SiteReviewJpaEntity review = siteReviewJpaRepository.findById(siteReviewId)
                 .orElseThrow(() -> new BusinessException(SiteReviewErrorCode.SITE_REVIEW_NOT_FOUND));
 
-        review.updateVisibility(visibility, promoted);
+        review.updatePromoted(promoted);
 
-        // 대외 노출이 바뀌는 작업이다. 누가 무엇을 공개했는지 남긴다.
-        log.info("[사이트 리뷰 공개 설정 변경] siteReviewId={}, visibility={}, promoted={}, actorAdminId={}",
-                siteReviewId, visibility, promoted, actorAdminId);
+        // 대외 노출이 바뀌는 작업이다. 누가 무엇을 내보냈는지 남긴다.
+        log.info("[사이트 리뷰 홍보 설정 변경] siteReviewId={}, promoted={}, actorAdminId={}",
+                siteReviewId, promoted, actorAdminId);
 
         List<SiteReviewJpaEntity> one = List.of(review);
         return SiteReviewRowResponse.from(

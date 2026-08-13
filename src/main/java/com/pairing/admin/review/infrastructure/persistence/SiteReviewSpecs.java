@@ -1,7 +1,6 @@
 package com.pairing.admin.review.infrastructure.persistence;
 
 import com.pairing.admin.review.domain.PartyRole;
-import com.pairing.admin.review.domain.SiteReviewVisibility;
 import jakarta.persistence.criteria.Predicate;
 import org.springframework.data.jpa.domain.Specification;
 
@@ -30,13 +29,6 @@ public final class SiteReviewSpecs {
             return null;
         }
         return (root, query, cb) -> cb.equal(root.get("writerRole"), writerRole);
-    }
-
-    public static Specification<SiteReviewJpaEntity> visibilityEquals(SiteReviewVisibility visibility) {
-        if (visibility == null) {
-            return null;
-        }
-        return (root, query, cb) -> cb.equal(root.get("visibility"), visibility);
     }
 
     /** 홍보 활용 여부. {@code null} 이면 홍보/미홍보를 모두 보여준다. */

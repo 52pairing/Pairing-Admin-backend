@@ -6,8 +6,7 @@ import com.pairing.admin.global.security.AdminPrincipal;
 import com.pairing.admin.global.security.CurrentAdmin;
 import com.pairing.admin.review.application.SiteReviewAdminService;
 import com.pairing.admin.review.domain.PartyRole;
-import com.pairing.admin.review.domain.SiteReviewVisibility;
-import com.pairing.admin.review.presentation.api.request.SiteReviewVisibilityRequest;
+import com.pairing.admin.review.presentation.api.request.SiteReviewPromotionRequest;
 import com.pairing.admin.review.presentation.api.response.SiteReviewRowResponse;
 import com.pairing.admin.review.presentation.api.response.SiteReviewSummaryResponse;
 import io.swagger.v3.oas.annotations.Operation;
@@ -30,7 +29,7 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * 사이트 리뷰 관리. (관리자 &gt; 사이트 리뷰 관리)
  *
- * <p>후기 작성·삭제 API 는 없다. 공개·홍보 여부만 바꾼다.
+ * <p>후기 작성·삭제 API 는 없다. 홍보 활용 여부만 바꾼다.
  */
 @RestController
 @RequestMapping("/api/v1/admin/site-reviews")
@@ -42,7 +41,7 @@ public class SiteReviewAdminController {
 
     @GetMapping("/summary")
     @Operation(summary = "[관리자] 사이트 리뷰 요약",
-            description = "요약 카드 6개와 별점 분포 그래프에 쓰는 값입니다. 필터와 무관한 전체 기준입니다.")
+            description = "요약 카드 5개와 별점 분포 그래프에 쓰는 값입니다. 필터와 무관한 전체 기준입니다.")
     public ResponseEntity<ApiResponse<SiteReviewSummaryResponse>> findSummary() {
         SiteReviewSummaryResponse data = siteReviewAdminService.getSummary();
         return ResponseEntity.ok(ApiResponse.success("SITE_REVIEW_SUMMARY_FOUND", "조회에 성공했습니다.", data));
@@ -50,7 +49,7 @@ public class SiteReviewAdminController {
 
     @GetMapping
     @Operation(summary = "[관리자] 사이트 리뷰 목록 조회",
-            description = "별점·작성자 구분·공개 여부·홍보 여부로 필터링합니다. "
+            description = "별점·작성자 구분·홍보 여부로 필터링합니다. "
                     + "keyword 는 회원명·후기 내용·프로젝트명을 한 번에 검색합니다.")
     public ResponseEntity<ApiResponse<PageResponse<SiteReviewRowResponse>>> findSiteReviews(
 
@@ -59,9 +58,6 @@ public class SiteReviewAdminController {
 
             @Parameter(description = "작성자 구분 필터", example = "CLIENT")
             @RequestParam(required = false) PartyRole writerRole,
-
-            @Parameter(description = "공개 여부 필터", example = "PUBLIC")
-            @RequestParam(required = false) SiteReviewVisibility visibility,
 
             @Parameter(description = "홍보 활용 여부 필터. 비우면 전체", example = "true")
             @RequestParam(required = false) Boolean promoted,
@@ -72,22 +68,21 @@ public class SiteReviewAdminController {
             @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
 
         PageResponse<SiteReviewRowResponse> data =
-                siteReviewAdminService.search(score, writerRole, visibility, promoted, keyword, pageable);
+                siteReviewAdminService.search(score, writerRole, promoted, keyword, pageable);
         return ResponseEntity.ok(ApiResponse.success("SITE_REVIEWS_FOUND", "조회에 성공했습니다.", data));
     }
 
-    @PutMapping("/{siteReviewId}/visibility")
-    @Operation(summary = "[관리자] 사이트 리뷰 공개·홍보 설정",
-            description = "작성 시 기본값은 공개입니다. 부적절한 후기를 비공개로 내리거나, "
-                    + "메인에 쓸 후기를 홍보 활용으로 켜는 용도입니다. "
-                    + "비공개 + 홍보 활용 조합은 400 으로 막습니다.")
-    public ResponseEntity<ApiResponse<SiteReviewRowResponse>> updateVisibility(
+    @PutMapping("/{siteReviewId}/promotion")
+    @Operation(summary = "[관리자] 사이트 리뷰 홍보 활용 설정",
+            description = "켜면 비로그인 메인 노출 후보가 되고, 끄면 사용자에게 보이지 않습니다. "
+                    + "공개/비공개 설정은 없앴습니다 — 사용자는 홍보로 고른 후기만 봅니다.")
+    public ResponseEntity<ApiResponse<SiteReviewRowResponse>> updatePromotion(
             @PathVariable Long siteReviewId,
-            @Valid @RequestBody SiteReviewVisibilityRequest request,
+            @Valid @RequestBody SiteReviewPromotionRequest request,
             @CurrentAdmin AdminPrincipal admin) {
 
-        SiteReviewRowResponse data = siteReviewAdminService.updateVisibility(
-                siteReviewId, request.visibility(), request.promoted(), admin.getAdminId());
+        SiteReviewRowResponse data = siteReviewAdminService.updatePromotion(
+                siteReviewId, request.promoted(), admin.getAdminId());
         return ResponseEntity.ok(ApiResponse.success("SITE_REVIEW_UPDATED", "설정을 변경했습니다.", data));
     }
 }
