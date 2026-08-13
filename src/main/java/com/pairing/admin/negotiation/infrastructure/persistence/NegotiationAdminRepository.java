@@ -67,6 +67,17 @@ public interface NegotiationAdminRepository extends Repository<NegotiationJpaEnt
      * <p>정렬을 파라미터로 받지 않고 <b>시작일 역순으로 고정</b>한다. 네이티브 쿼리에 정렬을
      * 문자열로 이어 붙이면 SQL 주입 경로가 되고, 관리자 화면에서 최근 협상부터 보는 것 말고
      * 다른 정렬을 쓸 일이 아직 없다.
+     *
+     * <p><b>{@code CAST(:status AS varchar) IS NULL} 의 CAST 를 지우지 말 것.</b> 파라미터가
+     * 컬럼과 비교되지 않고 홀로 {@code ? IS NULL} 로 놓이면 PostgreSQL 이 타입을 추론할 수단이
+     * 없어 <b>SQL 파싱 단계에서</b> 실패한다.
+     *
+     * <pre>ERROR: could not determine data type of parameter $1</pre>
+     *
+     * 값이 null 인지와 무관하게 항상 터지므로 <b>목록 조회 자체가 500</b> 이 된다. 네이티브 쿼리는
+     * Hibernate 가 엔티티 메타데이터로 타입을 채워 줄 수 없어 캐스트가 유일한 힌트다.
+     * 테스트 H2 는 {@code MODE=PostgreSQL} 이어도 이 구문을 통과시켜 <b>로컬 초록불이 보증이 되지
+     * 않는다</b> — 같은 원인으로 사용자 서버의 채팅 목록이 500 이었다(backend PR #200).
      */
     @Query(value = """
             SELECT n.id                AS negotiationId,
@@ -83,8 +94,8 @@ public interface NegotiationAdminRepository extends Repository<NegotiationJpaEnt
               LEFT JOIN client_profile c     ON c.id  = p.client_id
               LEFT JOIN freelancer_profile f ON f.id  = n.freelancer_id
               LEFT JOIN account fa           ON fa.id = f.account_id
-             WHERE (:status IS NULL OR n.status = :status)
-               AND (:keyword IS NULL
+             WHERE (CAST(:status AS varchar) IS NULL OR n.status = :status)
+               AND (CAST(:keyword AS varchar) IS NULL
                     OR p.title  ILIKE '%' || :keyword || '%'
                     OR c.company_name ILIKE '%' || :keyword || '%'
                     OR fa.name  ILIKE '%' || :keyword || '%')
@@ -104,8 +115,8 @@ public interface NegotiationAdminRepository extends Repository<NegotiationJpaEnt
               LEFT JOIN client_profile c     ON c.id  = p.client_id
               LEFT JOIN freelancer_profile f ON f.id  = n.freelancer_id
               LEFT JOIN account fa           ON fa.id = f.account_id
-             WHERE (:status IS NULL OR n.status = :status)
-               AND (:keyword IS NULL
+             WHERE (CAST(:status AS varchar) IS NULL OR n.status = :status)
+               AND (CAST(:keyword AS varchar) IS NULL
                     OR p.title  ILIKE '%' || :keyword || '%'
                     OR c.company_name ILIKE '%' || :keyword || '%'
                     OR fa.name  ILIKE '%' || :keyword || '%')
