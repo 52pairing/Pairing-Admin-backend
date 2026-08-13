@@ -102,6 +102,11 @@ app:
       username: ${ADMIN_BOOTSTRAP_USERNAME:}
       password: ${ADMIN_BOOTSTRAP_PASSWORD:}
 
+ai:
+  pairing-python:
+    base-url: ${PAIRING_PYTHON_BASE_URL:http://localhost:8000}
+    internal-api-key: ${INTERNAL_API_KEY:}
+
 cloud:
   aws:
     s3:
