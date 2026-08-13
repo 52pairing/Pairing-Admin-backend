@@ -3,6 +3,7 @@ package com.pairing.admin;
 import jakarta.annotation.PostConstruct;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableAsync;
 
 import java.util.TimeZone;
 
@@ -17,6 +18,7 @@ import java.util.TimeZone;
  * 즉시 강제 로그아웃이 가능해 관리 화면에 더 맞다.
  */
 @SpringBootApplication
+@EnableAsync
 public class AdminApplication {
 
     public static void main(String[] args) {
