@@ -2,7 +2,6 @@ package com.pairing.admin.dashboard.presentation.api;
 
 import com.pairing.admin.dashboard.presentation.api.response.AdminDashboardResponse;
 import com.pairing.admin.global.common.api.response.ApiResponse;
-import com.pairing.admin.member.domain.AccountStatus;
 import com.pairing.admin.member.infrastructure.persistence.AccountJpaRepository;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -65,6 +64,8 @@ public class AdminDashboardController {
                 accountJpaRepository.countByDeletedAtIsNull(),
                 accountJpaRepository.countByCreatedAtGreaterThanEqualAndDeletedAtIsNull(
                         LocalDate.now().atStartOfDay()),
-                accountJpaRepository.countByStatusAndDeletedAtIsNull(AccountStatus.LOCKED));
+                // 관리자가 건 정지만 센다. LOCKED(비밀번호 5회 실패로 자동 잠김)를 여기 넣으면
+                // 관리 조치가 아닌 건이 정지 지표에 섞인다.
+                accountJpaRepository.countBySuspendedAtIsNotNull());
     }
 }
