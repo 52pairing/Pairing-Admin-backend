@@ -7,6 +7,7 @@ import com.pairing.admin.negotiation.domain.NegotiationStatus;
 import com.pairing.admin.negotiation.presentation.api.response.NegotiationDetailResponse;
 import com.pairing.admin.negotiation.presentation.api.response.NegotiationListItemResponse;
 import com.pairing.admin.negotiation.presentation.api.response.NegotiationSummaryResponse;
+import com.pairing.admin.negotiation.presentation.api.response.NegotiationTokenUsageResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -71,5 +72,21 @@ public class NegotiationAdminController {
         return ResponseEntity.ok(ApiResponse.success(
                 "NEGOTIATION_FOUND", "조회에 성공했습니다.",
                 negotiationAdminService.getDetail(negotiationId)));
+    }
+
+    @GetMapping("/{negotiationId}/token-usage")
+    @Operation(summary = "[관리자] 협상 토큰 사용량",
+            description = "화면의 '토큰 사용량' 탭입니다. 협상 1건이 일으킨 모델 호출을 "
+                    + "토큰·응답시간·재시도와 함께 돌려줍니다. 대리인이 아직 돌지 않았으면 "
+                    + "집계는 0, 목록은 빈 배열입니다. "
+                    + "**비용 필드는 없습니다** — 모델 단가를 코드에 박지 않기로 해 원본이 비어 있습니다. "
+                    + "응답시간은 모델 호출 구간이며 사용자가 체감하는 총 왕복 시간이 아닙니다. "
+                    + "시각은 KST 입니다.")
+    public ResponseEntity<ApiResponse<NegotiationTokenUsageResponse>> findTokenUsage(
+            @PathVariable Long negotiationId) {
+
+        return ResponseEntity.ok(ApiResponse.success(
+                "NEGOTIATION_TOKEN_USAGE_FOUND", "조회에 성공했습니다.",
+                negotiationAdminService.getTokenUsage(negotiationId)));
     }
 }

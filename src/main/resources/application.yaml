@@ -2,6 +2,22 @@ spring:
   application:
     name: pairing-admin
 
+  data:
+    redis:
+      # 백엔드(Pairing-backend)와 "같은" Redis 인스턴스를 바라본다.
+      # 회원을 정지할 때 백엔드가 들고 있는 로그인 세션 키(RT:{id}, SESSION:{id})를 지워야
+      # 이미 로그인된 사용자가 즉시 끊긴다. DB 상태만 바꾸면 액세스 토큰 수명(기본 30분)만큼 늦게 끊긴다.
+      # DB URL 과 마찬가지로 배포 시 백엔드와 동일한 값을 주입해야 한다.
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      ssl:
+        # 로컬(평문 Docker Redis)은 false, 전송 중 암호화를 쓰는 관리형 Redis는 true
+        enabled: ${REDIS_SSL_ENABLED:false}
+      timeout: 5000ms
+      connect-timeout: 10000ms
+      lettuce:
+        shutdown-timeout: 200ms
+
   datasource:
     # 백엔드(Pairing-backend)와 "같은" RDS 인스턴스·같은 데이터베이스를 바라본다.
     # 값이 어긋나면 두 서버가 서로 다른 DB를 보게 되므로 배포 시 반드시 백엔드와 동일하게 주입한다.
@@ -101,6 +117,11 @@ app:
       enabled: ${ADMIN_BOOTSTRAP_ENABLED:false}
       username: ${ADMIN_BOOTSTRAP_USERNAME:}
       password: ${ADMIN_BOOTSTRAP_PASSWORD:}
+
+ai:
+  pairing-python:
+    base-url: ${PAIRING_PYTHON_BASE_URL:http://localhost:8000}
+    internal-api-key: ${INTERNAL_API_KEY:}
 
 cloud:
   aws:

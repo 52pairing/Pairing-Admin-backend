@@ -206,13 +206,56 @@ member/
 (`admin_user` 에는 enum 컬럼이 없으므로 이 제약과 무관하다)
 
 **3. 관리자 서버는 회원 계정을 만들거나 비밀번호를 바꾸지 않는다.**
-`AccountJpaEntity` 에 `lock` / `unlock` 만 열어 둔 것이 그 이유다.
-계정 생성·비밀번호 변경은 백엔드(본인 요청)의 몫이지 관리 화면의 몫이 아니다.
+`AccountJpaEntity` 에 `suspend` / `releaseSuspension` 만 열어 둔 것이 그 이유다.
+계정 생성·비밀번호 변경·탈퇴는 백엔드(본인 요청)의 몫이지 관리 화면의 몫이 아니다.
 
-**4. "정지"의 의미가 백엔드와 다르다.**
-백엔드는 정지(SUSPENDED)를 `account.status` 가 아니라 **Redis**에서 관리한다(스키마 v12 결정).
-이 서버는 Redis를 보지 않으므로 정지를 `status = LOCKED` 로 처리한다. 로그인 차단이라는 효과는 같다.
-백엔드의 Redis 기반 정지와 완전히 맞추려면 Redis도 함께 공유하도록 확장해야 한다.
+**4. 회원 정지는 이 서버가 소유한다. 판정 기준은 DB가 아니라 Redis다.**
+
+백엔드는 정지를 **Redis 키 하나의 존재 여부**로만 판단한다.
+(`auth/application/port/AccountSuspensionPort.java` — *"정지 처리(등록/해제)는 관리자 도메인이
+담당하고, 여기서는 로그인 차단을 위해 조회만 한다"*) 즉 백엔드에는 손댈 것이 없고,
+이 서버가 그 키를 만들고 지우면 된다.
+
+정지 한 번에 세 가지를 쓴다. 역할이 다르다.
+
+| | 무엇을 | 왜 |
+| --- | --- | --- |
+| 공유 Redis | `SUSPEND:{id}` **생성** | 백엔드가 **새 로그인**을 막는다. 이것이 원본이다 |
+| 공유 Redis | `RT:{id}`, `SESSION:{id}` **삭제** | **이미 로그인된 세션**을 즉시 끊는다. 빠뜨리면 액세스 토큰 수명(기본 30분)만큼 계속 쓸 수 있다 |
+| 공유 DB | `account.suspended_at` + `suspend_reason` | 목록의 "정지" 필터와 요약 카드를 **SQL로 세기 위한 사본**. Redis 키로는 "정지 회원만 보기"를 만들 수 없다 |
+
+> ⚠️ **`account.status` 에 `SUSPENDED` 를 쓰면 안 된다.** 백엔드의 `AccountStatus` enum 에
+> 그 값이 없어서, 써 넣는 순간 **백엔드가 해당 계정을 읽다가 `IllegalArgumentException` 으로 터진다.**
+> 정지 여부는 `suspended_at` 이 채워졌는지로만 판정하고, 화면에 보여 줄 "정지" 라벨은
+> `MemberStatusFilter` 가 두 컬럼을 합쳐서 만든다.
+
+쓰기 순서는 **DB 먼저, Redis 나중**이다. Redis가 실패하면 예외가 올라와 트랜잭션이 롤백되므로
+*"관리자 화면에는 정지로 보이는데 회원은 멀쩡히 쓰고 있는"* 상태가 남지 않는다.
+
+`LOCKED` 와 정지는 다르다. `LOCKED` 는 회원이 비밀번호를 5회 틀려 자동으로 잠긴 상태이고
+**본인이 이메일 인증으로 풀 수 있다.** 관리 조치와 섞으면 요약 카드의 정지 건수가 오염된다.
+그래서 정지는 `status` 를 건드리지 않으며, 잠긴 회원을 정지해도 `LOCKED` 이력이 그대로 남는다.
+
+> ⚠️ **Redis 키 이름은 백엔드와의 계약이다.** 원본은 백엔드의 `global/util/RedisKeys.java` 이고,
+> 이 서버는 `member/infrastructure/redis/BackendSessionKeys.java` 에 같은 값을 복제해 둔다.
+> DB 스키마와 달리 **Redis 에는 불일치를 잡아 줄 제약이 없다.** 어긋나면 컴파일 에러도 테스트 실패도
+> 없이 "정지 버튼을 눌러도 아무 일도 안 일어나는" 상태가 된다. 백엔드에서 키를 바꾸면 여기도 반드시 같이 고친다.
+> (`MemberSuspensionFlowTest` 가 키 이름을 못 박아 두고 있다)
+
+**4-1. 회원 조회는 `account` 한 테이블로 끝나지 않는다.**
+
+화면 한 줄에 필요한 값이 여러 테이블에 흩어져 있다. 기업명은 `client_profile`,
+가입 공급자(카카오/구글)는 `social_account`, 프로젝트 건수는 `project`/`contract`,
+거래금액은 `settlement` 다. 이 조인은 `MemberAdminQueryRepository` 의 네이티브 쿼리에 모여 있다.
+**엔티티를 늘리지 않는다** — 백엔드 소유 테이블을 이 서버에 또 매핑하면 컬럼이 바뀔 때 양쪽이 함께 깨진다.
+
+> ⚠️ `project.client_id` 는 `account.id` 가 **아니라** `client_profile.id` 다. (FK `fk_project_client`)
+> 회원 기준으로 세려면 프로필을 한 번 거쳐야 하고, 이걸 헷갈리면 건수가 늘 0으로 나온다.
+> 프리랜서의 프로젝트는 `contract` 를 경유한다.
+
+> ⚠️ **탈퇴 회원을 `deleted_at` 으로 거르면 안 된다.** 백엔드의 탈퇴(`Account.withdraw`)는
+> `status=WITHDRAWN` 과 함께 `deleted_at` 도 채운다. 걸러 버리면 화면의 "탈퇴" 필터와
+> 요약 카드가 영원히 0이 된다.
 
 **5. 커넥션 풀을 작게 잡았다.** (`DB_POOL_SIZE=5`)
 같은 RDS를 백엔드와 나눠 쓴다. 관리자 서버가 커넥션을 많이 물면 서비스 쪽이 마른다.

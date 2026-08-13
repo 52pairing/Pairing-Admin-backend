@@ -1,5 +1,6 @@
 package com.pairing.admin.negotiation.presentation.api.response;
 
+import com.pairing.admin.negotiation.domain.NegotiationNo;
 import com.pairing.admin.negotiation.domain.NegotiationStatus;
 import com.pairing.admin.negotiation.infrastructure.persistence.NegotiationAdminRepository;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -16,8 +17,12 @@ import java.time.LocalDateTime;
 @Schema(description = "협상 목록 항목")
 public record NegotiationListItemResponse(
 
-        @Schema(description = "협상 ID", example = "10")
+        @Schema(description = "협상 ID. <b>상세 조회 키는 이 값이다</b>", example = "10")
         Long negotiationId,
+
+        @Schema(description = "화면 표시용 협상번호. 저장된 값이 아니라 ID·시작연도로 만든 표기라 "
+                + "조회 키로 쓰면 안 된다. 상세와 같은 규칙으로 만든다", example = "NEG-2026-010")
+        String negotiationNo,
 
         @Schema(description = "프로젝트 ID", example = "18")
         Long projectId,
@@ -51,6 +56,7 @@ public record NegotiationListItemResponse(
         NegotiationStatus status = NegotiationStatus.valueOf(row.getStatus());
         return new NegotiationListItemResponse(
                 row.getNegotiationId(),
+                NegotiationNo.of(row.getNegotiationId(), row.getStartedAt()),
                 row.getProjectId(),
                 row.getProjectTitle(),
                 row.getClientName(),

@@ -27,4 +27,8 @@ public record ApiResponse<T>(
     public static ApiResponse<Void> success(String code, String message) {
         return new ApiResponse<>(Instant.now(), 200, code, message, null);
     }
+
+    public static ApiResponse<Void> accepted(String code, String message) {
+        return new ApiResponse<>(Instant.now(), 202, code, message, null);
+    }
 }

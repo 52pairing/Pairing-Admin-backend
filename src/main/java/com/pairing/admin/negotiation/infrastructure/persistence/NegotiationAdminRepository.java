@@ -32,8 +32,21 @@ public interface NegotiationAdminRepository extends Repository<NegotiationJpaEnt
 
         String getProjectTitle();
 
+        /**
+         * 클라이언트 <b>회사명</b>({@code client_profile.company_name}).
+         *
+         * <p>같은 계정의 {@code account.name} 은 <b>대표자명</b>이라 다른 값이다. 화면의
+         * "클라이언트" 는 발주한 회사를 가리키므로 회사명이 맞고, 협상 도메인의 당사자 이름
+         * 조회도 같은 컬럼을 쓴다. 대표자명으로 바꾸면 관리자 화면만 다른 이름을 보게 된다.
+         */
         String getClientName();
 
+        /**
+         * 프리랜서 이름({@code account.name}).
+         *
+         * <p>이쪽은 개인이라 프로필에 이름이 없고 계정에서 가져온다. 클라이언트와 출처가
+         * 다른 것은 의도된 것이다.
+         */
         String getFreelancerName();
 
         String getStatus();
@@ -59,7 +72,7 @@ public interface NegotiationAdminRepository extends Repository<NegotiationJpaEnt
             SELECT n.id                AS negotiationId,
                    n.project_id        AS projectId,
                    p.title             AS projectTitle,
-                   ca.name             AS clientName,
+                   c.company_name      AS clientName,
                    fa.name             AS freelancerName,
                    n.status            AS status,
                    n.total_round       AS totalRound,
@@ -68,13 +81,12 @@ public interface NegotiationAdminRepository extends Repository<NegotiationJpaEnt
               FROM negotiation n
               JOIN project p            ON p.id  = n.project_id
               LEFT JOIN client_profile c     ON c.id  = p.client_id
-              LEFT JOIN account ca           ON ca.id = c.account_id
               LEFT JOIN freelancer_profile f ON f.id  = n.freelancer_id
               LEFT JOIN account fa           ON fa.id = f.account_id
              WHERE (:status IS NULL OR n.status = :status)
                AND (:keyword IS NULL
                     OR p.title  ILIKE '%' || :keyword || '%'
-                    OR ca.name  ILIKE '%' || :keyword || '%'
+                    OR c.company_name ILIKE '%' || :keyword || '%'
                     OR fa.name  ILIKE '%' || :keyword || '%')
              ORDER BY n.started_at DESC, n.id DESC
              LIMIT :size OFFSET :offset
@@ -90,13 +102,12 @@ public interface NegotiationAdminRepository extends Repository<NegotiationJpaEnt
               FROM negotiation n
               JOIN project p            ON p.id  = n.project_id
               LEFT JOIN client_profile c     ON c.id  = p.client_id
-              LEFT JOIN account ca           ON ca.id = c.account_id
               LEFT JOIN freelancer_profile f ON f.id  = n.freelancer_id
               LEFT JOIN account fa           ON fa.id = f.account_id
              WHERE (:status IS NULL OR n.status = :status)
                AND (:keyword IS NULL
                     OR p.title  ILIKE '%' || :keyword || '%'
-                    OR ca.name  ILIKE '%' || :keyword || '%'
+                    OR c.company_name ILIKE '%' || :keyword || '%'
                     OR fa.name  ILIKE '%' || :keyword || '%')
             """, nativeQuery = true)
     long countPage(@Param("status") String status, @Param("keyword") String keyword);
@@ -112,7 +123,7 @@ public interface NegotiationAdminRepository extends Repository<NegotiationJpaEnt
             SELECT n.id                AS negotiationId,
                    n.project_id        AS projectId,
                    p.title             AS projectTitle,
-                   ca.name             AS clientName,
+                   c.company_name      AS clientName,
                    fa.name             AS freelancerName,
                    n.status            AS status,
                    n.total_round       AS totalRound,
@@ -121,7 +132,6 @@ public interface NegotiationAdminRepository extends Repository<NegotiationJpaEnt
               FROM negotiation n
               JOIN project p            ON p.id  = n.project_id
               LEFT JOIN client_profile c     ON c.id  = p.client_id
-              LEFT JOIN account ca           ON ca.id = c.account_id
               LEFT JOIN freelancer_profile f ON f.id  = n.freelancer_id
               LEFT JOIN account fa           ON fa.id = f.account_id
              WHERE n.id = :negotiationId
