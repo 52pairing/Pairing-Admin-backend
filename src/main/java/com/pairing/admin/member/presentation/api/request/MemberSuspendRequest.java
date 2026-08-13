@@ -4,8 +4,8 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
-@Schema(description = "회원 정지(잠금) 요청")
-public record MemberLockRequest(
+@Schema(description = "회원 정지 요청")
+public record MemberSuspendRequest(
 
         @Schema(description = "정지 사유. 회원 문의 시 근거가 되므로 필수로 받는다.",
                 example = "약관 위반 신고 누적")
