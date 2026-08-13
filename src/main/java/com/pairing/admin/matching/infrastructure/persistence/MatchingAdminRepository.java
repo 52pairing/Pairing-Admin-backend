@@ -50,7 +50,7 @@ public class MatchingAdminRepository {
                      LIMIT 1) AS last_log_at
               FROM freelancer_profile fp
               JOIN account a ON a.id = fp.account_id
-              JOIN resume r ON r.freelancer_id = fp.id AND r.status = 'COMPLETED'
+              JOIN resume r ON r.account_id = fp.account_id AND r.status = 'COMPLETED'
               LEFT JOIN freelancer_embedding fe ON fe.freelancer_id = fp.id
              WHERE a.status = 'ACTIVE'
                AND fp.ai_matching_agreed = TRUE
@@ -124,7 +124,7 @@ public class MatchingAdminRepository {
                 SELECT DISTINCT fp.id
                   FROM freelancer_profile fp
                   JOIN account a ON a.id = fp.account_id
-                  JOIN resume r ON r.freelancer_id = fp.id AND r.status = 'COMPLETED'
+                  JOIN resume r ON r.account_id = fp.account_id AND r.status = 'COMPLETED'
                  WHERE a.status = 'ACTIVE'
                    AND fp.ai_matching_agreed = TRUE
                    AND fp.matching_paused = FALSE
@@ -302,7 +302,7 @@ public class MatchingAdminRepository {
                   FROM freelancer_embedding fe
                   JOIN freelancer_profile fp ON fp.id = fe.freelancer_id
                   JOIN account a ON a.id = fp.account_id
-                  JOIN freelancer_condition fc ON fc.freelancer_id = fp.id
+                  JOIN freelancer_condition fc ON fc.account_id = fp.account_id
                   JOIN condition_skill cs ON cs.condition_id = fc.id
                   JOIN project_position pp ON pp.id = ?
                   JOIN position_skill ps ON ps.position_id = pp.id AND ps.skill_code = cs.skill_code
@@ -356,8 +356,8 @@ public class MatchingAdminRepository {
                   FROM ai_agent_log
                  WHERE agent_type IN ('EMBEDDING', 'MATCHER', 'GUARD')
                    AND (
-                         ref_id = ?
-                      OR ref_id = ?
+                         (ref_type = 'POSITION' AND ref_id = ?)
+                      OR (ref_type = 'PROJECT' AND ref_id = ?)
                    )
                  ORDER BY created_at DESC, id DESC
                  LIMIT 1
@@ -370,11 +370,12 @@ public class MatchingAdminRepository {
 
     private Optional<ResumeRef> findLatestCompletedResume(Long freelancerId) {
         return queryOptional("""
-                SELECT id, self_introduction
-                  FROM resume
-                 WHERE freelancer_id = ?
-                   AND status = 'COMPLETED'
-                 ORDER BY completed_at DESC NULLS LAST, id DESC
+                SELECT r.id, r.self_introduction
+                  FROM freelancer_profile fp
+                  JOIN resume r ON r.account_id = fp.account_id
+                 WHERE fp.id = ?
+                   AND r.status = 'COMPLETED'
+                 ORDER BY r.completed_at DESC NULLS LAST, r.id DESC
                  LIMIT 1
                 """, (rs, rowNum) -> new ResumeRef(
                 rs.getLong("id"),
@@ -397,9 +398,10 @@ public class MatchingAdminRepository {
                        fc.career_years,
                        cs.skill_code,
                        cs.skill_level
-                  FROM freelancer_condition fc
+                  FROM freelancer_profile fp
+                  JOIN freelancer_condition fc ON fc.account_id = fp.account_id
                   LEFT JOIN condition_skill cs ON cs.condition_id = fc.id
-                 WHERE fc.freelancer_id = ?
+                 WHERE fp.id = ?
                  ORDER BY cs.skill_code
                 """, rs -> {
             List<String> parts = new ArrayList<>();
