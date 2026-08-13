@@ -1,6 +1,5 @@
 package com.pairing.admin.review.infrastructure.persistence;
 
-import com.pairing.admin.review.domain.SiteReviewVisibility;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
@@ -14,8 +13,6 @@ public interface SiteReviewJpaRepository
         extends JpaRepository<SiteReviewJpaEntity, Long>, JpaSpecificationExecutor<SiteReviewJpaEntity> {
 
     long countByPromotedTrue();
-
-    long countByVisibility(SiteReviewVisibility visibility);
 
     /** 이번 달 작성 건수. */
     long countByCreatedAtAfter(LocalDateTime from);

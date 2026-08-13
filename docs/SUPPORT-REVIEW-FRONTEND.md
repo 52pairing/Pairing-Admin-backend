@@ -19,7 +19,7 @@
 | 문의 답변 | `POST` | `/api/v1/admin/inquiries/{inquiryId}/answer` |
 | 리뷰 요약 + 별점 분포 | `GET` | `/api/v1/admin/site-reviews/summary` |
 | 리뷰 목록 | `GET` | `/api/v1/admin/site-reviews` |
-| 공개·홍보 설정 | `PUT` | `/api/v1/admin/site-reviews/{siteReviewId}/visibility` |
+| 홍보 활용 설정 | `PUT` | `/api/v1/admin/site-reviews/{siteReviewId}/promotion` |
 
 **응답 껍데기는 전부 같다.**
 
@@ -183,13 +183,14 @@ GET /api/v1/admin/site-reviews/summary
     "thisMonthCount": 1,
     "promotedCount": 2,
     "notPromotedCount": 2,
-    "publicCount": 3,
     "scoreDistribution": { "5": 2, "4": 1, "3": 1, "2": 0, "1": 0 }
   }
 }
 ```
 
-카드 6개 + 그래프에 그대로 쓰면 된다. **필터와 무관한 전체 기준**이다.
+카드 5개 + 그래프에 그대로 쓰면 된다. **필터와 무관한 전체 기준**이다.
+
+> **`publicCount` 는 없어졌습니다.** (2026-08-13) 공개/비공개 개념을 없애면서 카드도 6개 → 5개입니다.
 
 - `ratingAverage` 는 후기가 없으면 `0`
 - **`scoreDistribution` 은 5~1 을 항상 다 내려준다.** 0건인 별점도 `0` 으로 오므로
@@ -198,7 +199,7 @@ GET /api/v1/admin/site-reviews/summary
 ## 2-2. 목록
 
 ```
-GET /api/v1/admin/site-reviews?keyword=삼성&score=5&writerRole=CLIENT&visibility=PUBLIC&promoted=true&page=0&size=20
+GET /api/v1/admin/site-reviews?keyword=삼성&score=5&writerRole=CLIENT&promoted=true&page=0&size=20
 ```
 
 | 파라미터 | 기본값 | 값 |
@@ -206,7 +207,6 @@ GET /api/v1/admin/site-reviews?keyword=삼성&score=5&writerRole=CLIENT&visibili
 | `keyword` | — | **회원명 · 후기 내용 · 프로젝트명을 한 번에** 검색 |
 | `score` | 전체 | `1` ~ `5` |
 | `writerRole` | 전체 | `CLIENT` / `FREELANCER` |
-| `visibility` | 전체 | `PUBLIC`(공개) / `PRIVATE`(비공개) |
 | `promoted` | 전체 | `true`(홍보 활용) / `false`(홍보 제외) |
 | `page` / `size` | 0 / 20 | |
 | `sort` | `createdAt,desc` | |
@@ -225,7 +225,6 @@ GET /api/v1/admin/site-reviews?keyword=삼성&score=5&writerRole=CLIENT&visibili
       "score": 5,
       "content": "매칭 속도가 빠르고 AI 협상 기능이 정말 유용했습니다.",
       "projectTitle": "쇼핑몰 관리자 페이지",
-      "visibility": "PUBLIC",
       "promoted": true,
       "createdAt": "2026-08-01T09:30:00"
     }],
@@ -241,58 +240,50 @@ GET /api/v1/admin/site-reviews?keyword=삼성&score=5&writerRole=CLIENT&visibili
 - `projectTitle` 은 프로젝트가 삭제됐으면 `null`
 - `siteReviewNo` 는 화면 표시용, 설정 변경에는 `siteReviewId` 를 쓴다
 
-## 2-3. 공개 · 홍보 설정
+## 2-3. 홍보 활용 설정
 
 ```
-PUT /api/v1/admin/site-reviews/1/visibility
+PUT /api/v1/admin/site-reviews/1/promotion
 Content-Type: application/json
 
-{ "visibility": "PUBLIC", "promoted": true }
+{ "promoted": true }
 ```
 
 응답은 **2-2 목록 행과 같은 모양**이다. 바뀐 값으로 그 행만 갈아끼우면 된다.
 
-**두 값을 항상 함께 보낸다.** 화면 버튼은 "공개로 변경"과 "홍보 활용"이 따로지만,
-한쪽만 보내면 "비공개인데 홍보 활용" 같은 조합이 생긴다.
-**버튼 하나를 누를 때 나머지는 현재 값을 그대로 실어 보낼 것.**
-
 | 응답 | 의미 |
 |---|---|
-| `400 ADMIN_REVIEW_002` | **비공개 + 홍보 활용** 조합 (아래 참고) |
 | `404 ADMIN_REVIEW_001` | 없는 리뷰 |
+| `400 GLOBAL_002` | `promoted` 누락 |
 
-### 비공개 + 홍보 활용은 막는다
-
-`{ "visibility": "PRIVATE", "promoted": true }` 는 `400` 이다.
-메인에 나갈 수 없는 후기를 홍보로 골라두면, 나중에 공개로 바꾸는 순간 검수 없이 홍보에 실린다.
-
-**비공개로 내릴 때는 `promoted` 도 `false` 로 같이 보내면 된다.**
-
-```json
-{ "visibility": "PRIVATE", "promoted": false }
-```
+> ⚠️ **경로와 본문이 바뀌었습니다.** (2026-08-13)
+> `PUT .../{id}/visibility` + `{ "visibility": ..., "promoted": ... }` → **`PUT .../{id}/promotion`** + `{ "promoted": ... }`
+> 옛 경로는 **404** 입니다. `ADMIN_REVIEW_002`(비공개+홍보 조합) 도 사라졌으니 그 분기를 지워주세요.
 
 ---
 
-## 3. 공개 여부와 홍보 활용의 차이
+## 3. 홍보 활용이란
 
-둘을 헷갈리기 쉬운데 역할이 다르다.
+**사용자에게 후기가 보이느냐를 정하는 유일한 스위치**다.
 
 | | 뜻 | 누가 정하나 |
 |---|---|---|
-| `visibility` | **검수 통과 여부** — 노출해도 되는 후기인가 | 작성 시 **기본 `PUBLIC`**. 관리자가 부적절한 것만 내림 |
-| `promoted` | **홍보 선별** — 메인에 걸 것인가 | 관리자가 직접 켠다 (기본 `false`) |
+| `promoted` | 메인에 걸 것인가 | 관리자가 직접 켠다 (기본 `false`) |
 
-**메인 노출 조건은 셋 다 만족해야 한다.**
+**메인 노출 조건은 둘 다 만족해야 한다.**
 
 ```
-visibility = PUBLIC   AND   promoted = true   AND   score >= 4
+promoted = true   AND   score >= 4
 ```
 
-3점 이하는 공개+홍보로 켜도 메인에 안 나온다. 서버 고정값이다.
+**3점 이하는 홍보로 켜도 메인에 안 나온다.** 서버 고정값이다. 화면에서 켤 수는 있지만
+효과가 없으니, 3점 이하 행에는 안내를 붙여두는 편이 낫다.
 
-> 후기는 작성되는 순간 **공개** 상태다. 관리자가 손대지 않아도 비공개로 숨겨지지 않는다.
-> 사후 관리 방식이다 — 부적절한 내용이 보이면 그때 내린다.
+> **공개/비공개는 없앴습니다.** (2026-08-13) 후기 원문은 이 관리 화면 밖으로 나가지 않고
+> 사용자가 보는 것은 홍보로 고른 후기와 평균 별점뿐입니다. 홍보를 끄면 이미 안 보이는데
+> 그 위에 공개 여부를 또 두는 것은 아무것도 바꾸지 않는 스위치였습니다.
+>
+> **화면에서 `공개여부` 열과 `공개로 변경`·`비공개로 변경` 버튼을 빼주세요.**
 
 ---
 
@@ -307,14 +298,14 @@ visibility = PUBLIC   AND   promoted = true   AND   score >= 4
                    → 응답으로 상세 갱신 + 목록의 상태 뱃지 갱신
 
 사이트 리뷰 관리
- ├── GET /admin/site-reviews/summary   카드 6개 + 별점 분포 그래프
+ ├── GET /admin/site-reviews/summary   카드 5개 + 별점 분포 그래프
  ├── GET /admin/site-reviews?...       목록 (검색·필터·페이징)
- └── [공개로 변경] / [홍보 활용] → PUT /admin/site-reviews/{id}/visibility
-                                   → 응답으로 그 행만 갱신
+ └── [홍보 활용] / [홍보 제외] → PUT /admin/site-reviews/{id}/promotion
+                                → 응답으로 그 행만 갱신
 ```
 
 **설정을 바꾸면 요약 카드 값도 달라진다.** `PUT` 성공 후 `summary` 를 다시 불러야
-"공개 3 → 4" 처럼 카드가 따라 움직인다.
+"홍보 활용 2 → 3" 처럼 카드가 따라 움직인다.
 
 ---
 
@@ -335,10 +326,10 @@ visibility = PUBLIC   AND   promoted = true   AND   score >= 4
 
 **문의는 이 서버에서 만들 수 없다.** 접수는 사용자가 백엔드 서버로 한다.
 관리자 서버에는 문의 생성 API 가 없다. 후기도 마찬가지로 작성·삭제 API 가 없다 —
-공개·홍보만 바꾼다.
+홍보 활용 여부만 바꾼다.
 
 **백엔드와 같은 DB 를 쓴다.** 여기서 답변하면 사용자 화면에 즉시 반영되고,
-공개·홍보를 켜면 비로그인 메인 노출에 바로 반영된다.
+홍보를 켜면 비로그인 메인 노출에 바로 반영된다.
 
 ---
 

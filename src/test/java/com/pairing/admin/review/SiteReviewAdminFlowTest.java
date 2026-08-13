@@ -62,7 +62,7 @@ class SiteReviewAdminFlowTest {
     private MockHttpSession session;
     private Long clientReviewId;
     private Long freelancerReviewId;
-    private Long privateReviewId;
+    private Long oldReviewId;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -86,19 +86,19 @@ class SiteReviewAdminFlowTest {
         jdbcTemplate.update("INSERT INTO project (id, title) VALUES (?, ?)", 502L, "데이터 파이프라인 구축");
 
         clientReviewId = insertReview(501L, 401L, "CLIENT", 5,
-                "매칭 속도가 빠르고 AI 협상 기능이 유용했습니다.", "PUBLIC", true, LocalDateTime.now());
+                "매칭 속도가 빠르고 AI 협상 기능이 유용했습니다.", true, LocalDateTime.now());
 
         freelancerReviewId = insertReview(502L, 402L, "FREELANCER", 4,
-                "플랫폼 사용이 직관적이에요.", "PUBLIC", false, LocalDateTime.now());
+                "플랫폼 사용이 직관적이에요.", false, LocalDateTime.now());
 
-        // 지난달에 작성된 비공개 후기. 이번 달 카운트에서 빠져야 한다.
-        privateReviewId = insertReview(501L, 402L, "FREELANCER", 3,
-                "개선이 필요한 부분이 있습니다.", "PRIVATE", false,
+        // 지난달에 작성된 후기. 이번 달 카운트에서 빠져야 한다.
+        oldReviewId = insertReview(501L, 402L, "FREELANCER", 3,
+                "개선이 필요한 부분이 있습니다.", false,
                 LocalDateTime.now().minusMonths(2));
     }
 
     @Test
-    @DisplayName("요약은 평균·전체·이번 달·홍보·공개를 세고, 별점 분포는 0건도 채운다")
+    @DisplayName("요약은 평균·전체·이번 달·홍보를 세고, 별점 분포는 0건도 채운다")
     void summaryCountsAndFillsDistribution() throws Exception {
         mockMvc.perform(get("/api/v1/admin/site-reviews/summary").session(session))
                 .andExpect(status().isOk())
@@ -106,7 +106,8 @@ class SiteReviewAdminFlowTest {
                 .andExpect(jsonPath("$.data.thisMonthCount").value(2))
                 .andExpect(jsonPath("$.data.promotedCount").value(1))
                 .andExpect(jsonPath("$.data.notPromotedCount").value(2))
-                .andExpect(jsonPath("$.data.publicCount").value(2))
+                // 공개/비공개는 없앴다. 사용자는 홍보로 고른 후기만 본다.
+                .andExpect(jsonPath("$.data.publicCount").doesNotExist())
                 .andExpect(jsonPath("$.data.scoreDistribution.5").value(1))
                 .andExpect(jsonPath("$.data.scoreDistribution.4").value(1))
                 .andExpect(jsonPath("$.data.scoreDistribution.3").value(1))
@@ -167,64 +168,54 @@ class SiteReviewAdminFlowTest {
     }
 
     @Test
-    @DisplayName("공개 여부·홍보 여부로 필터링된다")
-    void filtersByVisibilityAndPromoted() throws Exception {
-        mockMvc.perform(get("/api/v1/admin/site-reviews").session(session)
-                        .param("visibility", "PRIVATE"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.content.length()").value(1))
-                .andExpect(jsonPath("$.data.content[0].siteReviewId").value(privateReviewId));
-
+    @DisplayName("홍보 여부로 필터링된다")
+    void filtersByPromoted() throws Exception {
         mockMvc.perform(get("/api/v1/admin/site-reviews").session(session)
                         .param("promoted", "true"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.content.length()").value(1))
                 .andExpect(jsonPath("$.data.content[0].siteReviewId").value(clientReviewId));
+
+        mockMvc.perform(get("/api/v1/admin/site-reviews").session(session)
+                        .param("promoted", "false"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content.length()").value(2));
     }
 
     @Test
-    @DisplayName("비공개 후기를 공개 + 홍보로 바꿀 수 있다")
-    void updateVisibilityToPublicAndPromoted() throws Exception {
-        mockMvc.perform(put("/api/v1/admin/site-reviews/" + privateReviewId + "/visibility")
+    @DisplayName("홍보 활용을 켜고 끌 수 있다")
+    void updatePromotionTogglesFlag() throws Exception {
+        mockMvc.perform(put("/api/v1/admin/site-reviews/" + oldReviewId + "/promotion")
                         .session(session)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(body("PUBLIC", true)))
+                        .content(body(true)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.visibility").value("PUBLIC"))
                 .andExpect(jsonPath("$.data.promoted").value(true))
                 // 응답에도 작성자명·프로젝트명이 채워져 있어야 화면이 그대로 갱신된다
                 .andExpect(jsonPath("$.data.writerName").value("김프리"))
                 .andExpect(jsonPath("$.data.projectTitle").value("쇼핑몰 관리자 페이지"));
 
-        Map<String, Object> row = jdbcTemplate.queryForMap(
-                "SELECT visibility, promoted FROM site_review WHERE id = ?", privateReviewId);
-        assertThat(row.get("visibility")).isEqualTo("PUBLIC");
-        assertThat(row.get("promoted")).isEqualTo(true);
-    }
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT promoted FROM site_review WHERE id = ?", Boolean.class, oldReviewId)).isTrue();
 
-    @Test
-    @DisplayName("비공개 + 홍보 활용 조합은 400 으로 막는다")
-    void rejectsPromotingPrivateReview() throws Exception {
-        mockMvc.perform(put("/api/v1/admin/site-reviews/" + clientReviewId + "/visibility")
+        mockMvc.perform(put("/api/v1/admin/site-reviews/" + clientReviewId + "/promotion")
                         .session(session)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(body("PRIVATE", true)))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.errorCode").value("ADMIN_REVIEW_002"));
+                        .content(body(false)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.promoted").value(false));
 
-        // 막혔으므로 원래 값이 그대로여야 한다
         assertThat(jdbcTemplate.queryForObject(
-                "SELECT visibility FROM site_review WHERE id = ?", String.class, clientReviewId))
-                .isEqualTo("PUBLIC");
+                "SELECT promoted FROM site_review WHERE id = ?", Boolean.class, clientReviewId)).isFalse();
     }
 
     @Test
     @DisplayName("없는 리뷰를 바꾸려 하면 404 다")
     void missingReviewReturnsNotFound() throws Exception {
-        mockMvc.perform(put("/api/v1/admin/site-reviews/999999/visibility")
+        mockMvc.perform(put("/api/v1/admin/site-reviews/999999/promotion")
                         .session(session)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(body("PUBLIC", false)))
+                        .content(body(false)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.errorCode").value("ADMIN_REVIEW_001"));
     }
@@ -260,9 +251,8 @@ class SiteReviewAdminFlowTest {
         return (MockHttpSession) result.getRequest().getSession(false);
     }
 
-    private String body(String visibility, boolean promoted) throws Exception {
+    private String body(boolean promoted) throws Exception {
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("visibility", visibility);
         body.put("promoted", promoted);
         return objectMapper.writeValueAsString(body);
     }
@@ -278,14 +268,14 @@ class SiteReviewAdminFlowTest {
     }
 
     private Long insertReview(Long projectId, Long writerAccountId, String writerRole, int score,
-                              String content, String visibility, boolean promoted, LocalDateTime createdAt) {
+                              String content, boolean promoted, LocalDateTime createdAt) {
 
         jdbcTemplate.update("""
                         INSERT INTO site_review (contract_id, project_id, writer_account_id, writer_role,
-                                                 score, content, visibility, promoted, created_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                                 score, content, promoted, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                         """,
-                projectId, projectId, writerAccountId, writerRole, score, content, visibility, promoted, createdAt);
+                projectId, projectId, writerAccountId, writerRole, score, content, promoted, createdAt);
 
         return jdbcTemplate.queryForObject(
                 "SELECT id FROM site_review WHERE content = ?", Long.class, content);
