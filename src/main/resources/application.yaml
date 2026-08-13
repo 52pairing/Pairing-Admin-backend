@@ -121,7 +121,7 @@ app:
 ai:
   pairing-python:
     base-url: ${PAIRING_PYTHON_BASE_URL:http://localhost:8000}
-    internal-api-key: ${AI_INTERNAL_API_KEY:${INTERNAL_API_KEY:}}
+    internal-api-key: ${INTERNAL_API_KEY:}
 
 cloud:
   aws:
