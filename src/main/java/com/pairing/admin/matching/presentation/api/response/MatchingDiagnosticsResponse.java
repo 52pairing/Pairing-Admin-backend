@@ -24,8 +24,12 @@ public record MatchingDiagnosticsResponse(
     public record SnapshotInfo(boolean projectSnapshotExists, boolean positionSnapshotExists) {
     }
 
+    /**
+     * @param positionDimension 저장된 포지션 벡터의 실제 차원. 임베딩 모델을 바꿨을 때 옛 차원 벡터와
+     *                          새 차원 벡터가 섞이는 것을 잡기 위한 값이다. 벡터가 없으면 null
+     */
     public record EmbeddingInfo(boolean positionEmbeddingExists, String positionModel,
-                                long freelancerEmbeddingCount) {
+                                Integer positionDimension, long freelancerEmbeddingCount) {
     }
 
     public record RoundInfo(Long roundId, Integer roundNo, String roundType, String status) {

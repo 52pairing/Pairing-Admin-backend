@@ -105,7 +105,7 @@ class MatchingAdminControllerTest {
                 new MatchingDiagnosticsResponse.ProjectInfo(23L, "Project", "RECRUITING", "DEPOSIT_PAID"),
                 new MatchingDiagnosticsResponse.PositionInfo(33L, "RECRUITING", "DEVELOPMENT", "BACKEND"),
                 new MatchingDiagnosticsResponse.SnapshotInfo(true, true),
-                new MatchingDiagnosticsResponse.EmbeddingInfo(true, "gemini-embedding-001", 1),
+                new MatchingDiagnosticsResponse.EmbeddingInfo(true, "gemini-embedding-001", 768, 1),
                 new MatchingDiagnosticsResponse.RoundInfo(14L, 1, "INITIAL", "COMPLETED"),
                 new MatchingDiagnosticsResponse.CountInfo(1, 1, 1),
                 new MatchingDiagnosticsResponse.LastAiLogInfo("SUCCESS", LocalDateTime.now(), null)
@@ -125,7 +125,8 @@ class MatchingAdminControllerTest {
     void findMatchingProjects() throws Exception {
         PageRequest pageable = PageRequest.of(0, 20);
         MatchingProjectSummaryResponse item = new MatchingProjectSummaryResponse(
-                23L, "Project", "RECRUITING", "DEPOSIT_PAID", 2, 1, LocalDateTime.now());
+                23L, "Project", "주식회사 페어링", "RECRUITING", "DEPOSIT_PAID",
+                LocalDateTime.now(), 2, 1, LocalDateTime.now());
         when(matchingAdminService.findMatchingProjects(eq(false), any()))
                 .thenReturn(PageResponse.from(new PageImpl<>(List.of(item), pageable, 1)));
 
@@ -155,11 +156,12 @@ class MatchingAdminControllerTest {
         MatchingProjectDiagnosticsResponse.PositionDiagnostics position =
                 new MatchingProjectDiagnosticsResponse.PositionDiagnostics(
                         new MatchingDiagnosticsResponse.PositionInfo(33L, "RECRUITING", "DEVELOPMENT", "BACKEND"),
-                        true, false, null, 46,
+                        true, false, null, null, 46,
                         new MatchingDiagnosticsResponse.RoundInfo(null, null, null, null),
                         new MatchingDiagnosticsResponse.CountInfo(0, 0, 0),
                         new MatchingDiagnosticsResponse.LastAiLogInfo(null, null, null),
-                        List.of("POSITION_EMBEDDING_MISSING", "ROUND_MISSING")
+                        List.of(MatchingProjectDiagnosticsResponse.IssueType.POSITION_EMBEDDING_MISSING.toIssue(),
+                                MatchingProjectDiagnosticsResponse.IssueType.ROUND_MISSING.toIssue())
                 );
         MatchingProjectDiagnosticsResponse response = new MatchingProjectDiagnosticsResponse(
                 new MatchingDiagnosticsResponse.ProjectInfo(23L, "Project", "RECRUITING", "DEPOSIT_PAID"),
@@ -171,6 +173,8 @@ class MatchingAdminControllerTest {
                 .andExpect(jsonPath("$.code").value("MATCHING_PROJECT_DIAGNOSTICS_FOUND"))
                 .andExpect(jsonPath("$.data.issueCount").value(1))
                 .andExpect(jsonPath("$.data.positions[0].position.positionId").value(33))
-                .andExpect(jsonPath("$.data.positions[0].issues[0]").value("POSITION_EMBEDDING_MISSING"));
+                .andExpect(jsonPath("$.data.positions[0].issues[0].code").value("POSITION_EMBEDDING_MISSING"))
+                .andExpect(jsonPath("$.data.positions[0].issues[0].message").isNotEmpty())
+                .andExpect(jsonPath("$.data.positions[0].positionEmbeddingDimension").doesNotExist());
     }
 }

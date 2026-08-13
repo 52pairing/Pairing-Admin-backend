@@ -306,7 +306,8 @@ public class MatchingAdminRepository {
                 + " GROUP BY p.id" + having + ") counted");
 
         List<MatchingProjectSummaryResponse> content = jdbcTemplate.query(
-                "SELECT p.id AS project_id, p.title, p.status, p.payment_status,"
+                "SELECT p.id AS project_id, p.title, cp.company_name AS client_name,"
+                        + " p.status, p.payment_status, p.recruit_started_at,"
                         + " COUNT(pp.id) AS position_count,"
                         + " COALESCE(SUM(" + POSITION_ISSUE_EXPRESSION + "), 0) AS issue_count,"
                         + " (SELECT MAX(l.created_at) FROM ai_agent_log l"
@@ -314,15 +315,21 @@ public class MatchingAdminRepository {
                         + "     AND l.ref_id IN (SELECT x.id FROM project_position x"
                         + "                       WHERE x.project_id = p.id)) AS last_ai_log_at"
                         + " FROM project p"
+                        // client_id 는 account.id 가 아니라 client_profile.id 다. 회사명이 없어도
+                        // 프로젝트는 목록에 나와야 하므로 LEFT JOIN 이다.
+                        + " LEFT JOIN client_profile cp ON cp.id = p.client_id"
                         + " LEFT JOIN project_position pp ON pp.project_id = p.id"
                         + " WHERE p.payment_status IN (" + DEPOSIT_PAID_STATUSES + ")"
-                        + " GROUP BY p.id, p.title, p.status, p.payment_status" + having
+                        + " GROUP BY p.id, p.title, cp.company_name, p.status, p.payment_status,"
+                        + "          p.recruit_started_at" + having
                         + " ORDER BY issue_count DESC, p.id DESC LIMIT ? OFFSET ?",
                 (rs, rowNum) -> new MatchingProjectSummaryResponse(
                         rs.getLong("project_id"),
                         rs.getString("title"),
+                        rs.getString("client_name"),
                         rs.getString("status"),
                         rs.getString("payment_status"),
+                        toLocalDateTime(rs.getTimestamp("recruit_started_at")),
                         rs.getInt("position_count"),
                         rs.getInt("issue_count"),
                         toLocalDateTime(rs.getTimestamp("last_ai_log_at"))
@@ -373,19 +380,19 @@ public class MatchingAdminRepository {
         MatchingDiagnosticsResponse.RoundInfo round = findLatestRound(projectId, positionId);
         MatchingDiagnosticsResponse.CountInfo counts = findCountInfo(projectId, positionId);
 
-        List<String> issues = new ArrayList<>();
+        List<MatchingProjectDiagnosticsResponse.Issue> issues = new ArrayList<>();
         if (!snapshots.positionSnapshotExists()) {
-            issues.add("POSITION_SNAPSHOT_MISSING");
+            issues.add(MatchingProjectDiagnosticsResponse.IssueType.POSITION_SNAPSHOT_MISSING.toIssue());
         }
         if (!embeddings.positionEmbeddingExists()) {
-            issues.add("POSITION_EMBEDDING_MISSING");
+            issues.add(MatchingProjectDiagnosticsResponse.IssueType.POSITION_EMBEDDING_MISSING.toIssue());
         }
         if (round.roundId() == null) {
-            issues.add("ROUND_MISSING");
+            issues.add(MatchingProjectDiagnosticsResponse.IssueType.ROUND_MISSING.toIssue());
         } else if (counts.exposedCandidateCount() == 0) {
             // 라운드가 없으면 노출 후보가 0인 게 당연하다. 원인이 하나인데 두 줄로 보이면
             // 목록의 issueCount가 부풀어 우선순위 판단을 흐린다.
-            issues.add("NO_EXPOSED_CANDIDATE");
+            issues.add(MatchingProjectDiagnosticsResponse.IssueType.NO_EXPOSED_CANDIDATE.toIssue());
         }
 
         return new MatchingProjectDiagnosticsResponse.PositionDiagnostics(
@@ -393,6 +400,7 @@ public class MatchingAdminRepository {
                 snapshots.positionSnapshotExists(),
                 embeddings.positionEmbeddingExists(),
                 embeddings.positionModel(),
+                embeddings.positionDimension(),
                 embeddings.freelancerEmbeddingCount(),
                 round,
                 counts,
@@ -444,11 +452,19 @@ public class MatchingAdminRepository {
     }
 
     private MatchingDiagnosticsResponse.EmbeddingInfo findEmbeddingInfo(Long positionId) {
-        Optional<String> positionModel = queryOptional(
-                "SELECT model FROM position_embedding WHERE position_id = ?",
-                (rs, rowNum) -> rs.getString("model"),
+        // vector_dims 는 pgvector 함수다. 저장된 벡터의 실제 차원을 읽는 유일한 방법이라 그대로 쓴다
+        // (모델 설정값을 그대로 내려주면 정작 잡으려는 "옛 차원 벡터가 섞였다"를 못 잡는다).
+        // H2 테스트에는 이 함수가 없어서 shared-tables.sql 이 같은 이름의 별칭을 만들어 둔다.
+        Optional<PositionEmbeddingRef> embedding = queryOptional(
+                "SELECT model, vector_dims(embedding) AS dimension "
+                        + "FROM position_embedding WHERE position_id = ?",
+                (rs, rowNum) -> new PositionEmbeddingRef(
+                        rs.getString("model"),
+                        (Integer) rs.getObject("dimension")
+                ),
                 positionId
         );
+        Optional<String> positionModel = embedding.map(PositionEmbeddingRef::model);
         long freelancerEmbeddingCount = count("""
                 SELECT COUNT(DISTINCT fe.freelancer_id)
                   FROM freelancer_embedding fe
@@ -467,6 +483,7 @@ public class MatchingAdminRepository {
         return new MatchingDiagnosticsResponse.EmbeddingInfo(
                 positionModel.isPresent(),
                 positionModel.orElse(null),
+                embedding.map(PositionEmbeddingRef::dimension).orElse(null),
                 freelancerEmbeddingCount
         );
     }
@@ -603,6 +620,9 @@ public class MatchingAdminRepository {
     }
 
     public record PositionRef(Long projectId, Long positionId) {
+    }
+
+    private record PositionEmbeddingRef(String model, Integer dimension) {
     }
 
     private record ResumeRef(Long resumeId, String selfIntroduction) {

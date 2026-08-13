@@ -13,6 +13,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.jdbc.Sql;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -56,6 +57,8 @@ class MatchingAdminDiagnosticsTest {
      * 없으면 후보도 없어서 후보 검사가 대신 걸리기 때문이다(변이 테스트로 확인함).
      */
     private static final long ORPHAN_CANDIDATE_POSITION = 9106L;
+
+    private static final LocalDateTime RECRUIT_STARTED_AT = LocalDateTime.of(2026, 8, 1, 9, 0);
 
     @Autowired
     private MatchingAdminRepository matchingAdminRepository;
@@ -176,6 +179,44 @@ class MatchingAdminDiagnosticsTest {
     }
 
     @Test
+    @DisplayName("issues 에 화면 문구가 함께 실린다")
+    void issuesCarryDisplayMessages() {
+        MatchingProjectDiagnosticsResponse detail =
+                matchingAdminRepository.findProjectDiagnostics(PAID_PROJECT);
+
+        assertThat(positionOf(detail, NO_EMBEDDING_POSITION).issues())
+                .as("문구를 프론트가 들고 있으면 진단 항목 추가 때 양쪽 배포를 맞춰야 한다")
+                .singleElement()
+                .satisfies(issue -> {
+                    assertThat(issue.code()).isEqualTo("POSITION_EMBEDDING_MISSING");
+                    assertThat(issue.message()).isNotBlank();
+                });
+    }
+
+    @Test
+    @DisplayName("목록에 클라이언트명과 모집 시작 시각이 실린다")
+    void listCarriesClientNameAndRecruitStartedAt() {
+        MatchingProjectSummaryResponse summary = findSummary(PAID_PROJECT);
+
+        assertThat(summary.clientName()).isEqualTo("주식회사 결제 완료 프로젝트");
+        assertThat(summary.recruitStartedAt())
+                .as("모집 시작 시각이 없으면 '사흘 전부터 후보 0명'인지 '방금 시작'인지 구분되지 않는다")
+                .isEqualTo(RECRUIT_STARTED_AT);
+    }
+
+    @Test
+    @DisplayName("저장된 벡터의 실제 차원을 상세가 알려준다")
+    void reportsStoredEmbeddingDimension() {
+        MatchingProjectDiagnosticsResponse detail =
+                matchingAdminRepository.findProjectDiagnostics(PAID_PROJECT);
+
+        assertThat(positionOf(detail, HEALTHY_POSITION).positionEmbeddingDimension()).isEqualTo(768);
+        assertThat(positionOf(detail, NO_EMBEDDING_POSITION).positionEmbeddingDimension())
+                .as("벡터가 없으면 차원도 없다")
+                .isNull();
+    }
+
+    @Test
     @DisplayName("프로젝트 스냅샷 없음을 상세가 알려준다")
     void reportsMissingProjectSnapshot() {
         assertThat(matchingAdminRepository.findProjectDiagnostics(PAID_PROJECT).projectSnapshotExists())
@@ -189,11 +230,17 @@ class MatchingAdminDiagnosticsTest {
     }
 
     private List<String> issuesOf(MatchingProjectDiagnosticsResponse detail, long positionId) {
+        return positionOf(detail, positionId).issues().stream()
+                .map(MatchingProjectDiagnosticsResponse.Issue::code)
+                .toList();
+    }
+
+    private MatchingProjectDiagnosticsResponse.PositionDiagnostics positionOf(
+            MatchingProjectDiagnosticsResponse detail, long positionId) {
         return detail.positions().stream()
                 .filter(item -> item.position().positionId() == positionId)
                 .findFirst()
-                .orElseThrow(() -> new AssertionError("포지션이 상세에 없다: " + positionId))
-                .issues();
+                .orElseThrow(() -> new AssertionError("포지션이 상세에 없다: " + positionId));
     }
 
     private MatchingProjectSummaryResponse findSummary(long projectId) {
@@ -219,13 +266,19 @@ class MatchingAdminDiagnosticsTest {
             jdbcTemplate.update("DELETE FROM matching_snapshot WHERE project_id = ?", projectId);
             jdbcTemplate.update("DELETE FROM project_position WHERE project_id = ?", projectId);
             jdbcTemplate.update("DELETE FROM project WHERE id = ?", projectId);
+            // H2 인메모리는 컨텍스트 사이에 남는다. 프로젝트마다 회사명을 심으므로 그것도 지운다.
+            jdbcTemplate.update("DELETE FROM client_profile WHERE id = ?", projectId);
         }
     }
 
     private void insertProject(long projectId, String title, String paymentStatus) {
         jdbcTemplate.update(
-                "INSERT INTO project (id, title, status, payment_status) VALUES (?, ?, 'RECRUITING', ?)",
-                projectId, title, paymentStatus);
+                "INSERT INTO client_profile (id, account_id, company_name) VALUES (?, ?, ?)",
+                projectId, projectId, "주식회사 " + title);
+        jdbcTemplate.update(
+                "INSERT INTO project (id, client_id, title, status, payment_status, recruit_started_at) "
+                        + "VALUES (?, ?, ?, 'RECRUITING', ?, ?)",
+                projectId, projectId, title, paymentStatus, RECRUIT_STARTED_AT);
     }
 
     private void insertPosition(long positionId, long projectId) {
@@ -239,9 +292,10 @@ class MatchingAdminDiagnosticsTest {
                 + "VALUES (?, ?, 'POSITION')", projectId, positionId);
     }
 
+    /** embedding 컬럼에는 H2 별칭 vector_dims 가 그대로 돌려줄 차원 값을 넣는다(shared-tables.sql 참고). */
     private void insertPositionEmbedding(long positionId) {
-        jdbcTemplate.update("INSERT INTO position_embedding (position_id, model) "
-                + "VALUES (?, 'gemini-embedding-001')", positionId);
+        jdbcTemplate.update("INSERT INTO position_embedding (position_id, model, embedding) "
+                + "VALUES (?, 'gemini-embedding-001', '768')", positionId);
     }
 
     private void insertRound(long positionId, long projectId) {

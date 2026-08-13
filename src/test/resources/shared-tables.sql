@@ -83,6 +83,8 @@ CREATE TABLE IF NOT EXISTS project (
     status         VARCHAR(30),
     -- 매칭 진단 목록이 착수금 결제 완료 여부로 대상을 고른다.
     payment_status VARCHAR(30),
+    -- 모집 시작(착수금 결제 완료) 시각. 진단 목록이 문제의 심각도를 가늠하는 데 쓴다.
+    recruit_started_at TIMESTAMP,
     deleted_at     TIMESTAMP
 );
 
@@ -143,11 +145,17 @@ CREATE TABLE IF NOT EXISTS matching_snapshot (
     snapshot_type VARCHAR(30)
 );
 
--- 운영은 pgvector 컬럼이 있지만 진단 쿼리는 존재 여부와 model 만 본다.
+-- 운영은 embedding 이 pgvector 의 vector(768) 타입이다. H2 에는 그 타입이 없어서 문자열로 둔다.
 CREATE TABLE IF NOT EXISTS position_embedding (
     position_id BIGINT,
-    model       VARCHAR(50)
+    model       VARCHAR(50),
+    embedding   VARCHAR(64)
 );
+
+-- 진단 쿼리가 저장된 벡터의 실제 차원을 vector_dims(embedding) 으로 읽는다. pgvector 함수라 H2 에는
+-- 없으므로 같은 이름의 별칭을 만들어 둔다. 자바 소스를 인라인하는 형태($$ ... $$)는 스프링 스크립트
+-- 러너가 자바 본문의 세미콜론에서 문장을 쪼개 버려서 쓸 수 없다 - 메서드를 가리킨다.
+CREATE ALIAS IF NOT EXISTS vector_dims FOR "com.pairing.admin.testsupport.H2VectorFunctions.vectorDims";
 
 CREATE TABLE IF NOT EXISTS freelancer_embedding (
     freelancer_id BIGINT,
