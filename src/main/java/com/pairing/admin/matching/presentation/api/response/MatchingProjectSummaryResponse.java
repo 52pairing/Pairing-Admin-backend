@@ -1,5 +1,6 @@
 package com.pairing.admin.matching.presentation.api.response;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.time.LocalDateTime;
@@ -23,6 +24,8 @@ import java.time.LocalDateTime;
  *                         처리 중"인지가 이 값 없이는 구분되지 않는다
  * @param lastAiLogAt 이 프로젝트의 포지션들에 대한 마지막 AI 호출 시각. 한 번도 없으면 null이며,
  *                    그 자체가 "매칭이 아예 돌지 않았다"는 신호다
+ * @param status 프로젝트 상태 <b>코드</b>. 화면에 찍는 문구는 {@code statusLabel}이다
+ * @param paymentStatus 결제 상태 <b>코드</b>. 화면에 찍는 문구는 {@code paymentStatusLabel}이다
  */
 @Schema(description = "AI matching diagnostics target project")
 public record MatchingProjectSummaryResponse(
@@ -36,4 +39,14 @@ public record MatchingProjectSummaryResponse(
         int issueCount,
         LocalDateTime lastAiLogAt
 ) {
+
+    @JsonProperty("statusLabel")
+    public String statusLabel() {
+        return MatchingCodeLabel.projectStatus(status);
+    }
+
+    @JsonProperty("paymentStatusLabel")
+    public String paymentStatusLabel() {
+        return MatchingCodeLabel.paymentStatus(paymentStatus);
+    }
 }

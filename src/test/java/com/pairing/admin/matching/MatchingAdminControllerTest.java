@@ -117,7 +117,45 @@ class MatchingAdminControllerTest {
                         .param("positionId", "33"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("MATCHING_DIAGNOSTICS_FOUND"))
-                .andExpect(jsonPath("$.data.project.projectId").value(23));
+                .andExpect(jsonPath("$.data.project.projectId").value(23))
+                // 상태 코드마다 화면 문구가 함께 나가야 한다. 문구가 빠지면 관리자 화면에 영문 코드가
+                // 그대로 찍힌다 - 실제로 그렇게 배포됐다. 코드는 분기용으로 그대로 남긴다.
+                .andExpect(jsonPath("$.data.project.status").value("RECRUITING"))
+                .andExpect(jsonPath("$.data.project.statusLabel").value("모집중"))
+                .andExpect(jsonPath("$.data.project.paymentStatusLabel").value("착수금 결제 완료"))
+                // 프로젝트와 코드가 같아도(RECRUITING) 포지션은 자기 표를 쓴다
+                .andExpect(jsonPath("$.data.position.statusLabel").value("모집중"))
+                .andExpect(jsonPath("$.data.round.roundTypeLabel").value("최초 추천"))
+                .andExpect(jsonPath("$.data.round.statusLabel").value("완료"))
+                .andExpect(jsonPath("$.data.lastAiLog.statusLabel").value("성공"));
+    }
+
+    @Test
+    @DisplayName("falls back to the raw code when a status is unknown, and leaves absent statuses absent")
+    void labelsUnknownAndMissingStatuses() throws Exception {
+        // 백엔드가 상태 값을 추가하면 관리자 표가 먼저 낡는다. 그때 빈칸이 뜨면 관리자는 무슨
+        // 상태인지조차 알 수 없으므로, 영어 코드라도 그대로 보이게 한다.
+        MatchingDiagnosticsResponse response = new MatchingDiagnosticsResponse(
+                new MatchingDiagnosticsResponse.ProjectInfo(23L, "Project", "BRAND_NEW_STATUS", "DEPOSIT_PAID"),
+                new MatchingDiagnosticsResponse.PositionInfo(33L, "RECRUITING", "DEVELOPMENT", "BACKEND"),
+                new MatchingDiagnosticsResponse.SnapshotInfo(true, true),
+                new MatchingDiagnosticsResponse.EmbeddingInfo(true, "gemini-embedding-001", 768, 1),
+                // 라운드가 없으면 상태도 없는 게 정상이다. "-" 같은 값으로 채우면 프론트가
+                // "없음"과 "모르는 값"을 구분할 수 없다.
+                new MatchingDiagnosticsResponse.RoundInfo(null, null, null, null),
+                new MatchingDiagnosticsResponse.CountInfo(0, 0, 0),
+                new MatchingDiagnosticsResponse.LastAiLogInfo(null, null, null)
+        );
+        when(matchingAdminService.findDiagnostics(23L, 33L)).thenReturn(response);
+
+        mockMvc.perform(get("/api/v1/admin/matchings/diagnostics")
+                        .param("projectId", "23")
+                        .param("positionId", "33"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.project.statusLabel").value("BRAND_NEW_STATUS"))
+                .andExpect(jsonPath("$.data.round.statusLabel").doesNotExist())
+                .andExpect(jsonPath("$.data.round.roundTypeLabel").doesNotExist())
+                .andExpect(jsonPath("$.data.lastAiLog.statusLabel").doesNotExist());
     }
 
     @Test
@@ -134,7 +172,9 @@ class MatchingAdminControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("MATCHING_PROJECTS_FOUND"))
                 .andExpect(jsonPath("$.data.content[0].projectId").value(23))
-                .andExpect(jsonPath("$.data.content[0].issueCount").value(1));
+                .andExpect(jsonPath("$.data.content[0].issueCount").value(1))
+                .andExpect(jsonPath("$.data.content[0].statusLabel").value("모집중"))
+                .andExpect(jsonPath("$.data.content[0].paymentStatusLabel").value("착수금 결제 완료"));
     }
 
     @Test
