@@ -3,6 +3,8 @@ package com.pairing.admin.matching.infrastructure.persistence;
 import com.pairing.admin.matching.presentation.api.response.AiLogResponse;
 import com.pairing.admin.matching.presentation.api.response.EmbeddingMissingResponse;
 import com.pairing.admin.matching.presentation.api.response.MatchingDiagnosticsResponse;
+import com.pairing.admin.matching.presentation.api.response.MatchingProjectDiagnosticsResponse;
+import com.pairing.admin.matching.presentation.api.response.MatchingProjectSummaryResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.data.domain.PageImpl;
@@ -26,6 +28,32 @@ import java.util.Optional;
 @Repository
 @RequiredArgsConstructor
 public class MatchingAdminRepository {
+
+    /**
+     * 착수금 결제가 끝난 프로젝트의 payment_status 값. 이 상태부터 모집이 시작되고 임베딩·스냅샷·
+     * 추천 라운드가 만들어진다. {@code DEPOSIT_PENDING}/{@code PAYMENT_FAILED}는 아직 아무것도
+     * 없는 게 정상이라 진단 목록에서 뺀다.
+     */
+    private static final String DEPOSIT_PAID_STATUSES =
+            "'DEPOSIT_PAID', 'SUCCESS_FEE_PENDING', 'SUCCESS_FEE_PAID'";
+
+    /**
+     * 포지션 1건이 문제인지 판정하는 SQL 식(1이면 문제). 목록의 issueCount 계산에 쓴다.
+     *
+     * <p>판정 항목은 {@code buildPositionDiagnostics}의 issues와 같아야 한다 - 목록에서 "문제 2건"인데
+     * 상세로 들어가면 3건이면 관리자가 어느 쪽을 믿어야 할지 알 수 없다. <b>한쪽을 고치면 반드시
+     * 다른 쪽도 고칠 것.</b>
+     */
+    private static final String POSITION_ISSUE_EXPRESSION = """
+            CASE WHEN pp.id IS NULL THEN 0
+                 WHEN NOT EXISTS (SELECT 1 FROM matching_snapshot ms
+                                   WHERE ms.position_id = pp.id AND ms.snapshot_type = 'POSITION')
+                   OR NOT EXISTS (SELECT 1 FROM position_embedding pe WHERE pe.position_id = pp.id)
+                   OR NOT EXISTS (SELECT 1 FROM matching_round mr WHERE mr.position_id = pp.id)
+                   OR NOT EXISTS (SELECT 1 FROM matching_candidate mc
+                                   WHERE mc.position_id = pp.id AND mc.is_exposed = TRUE)
+                 THEN 1 ELSE 0 END
+            """;
 
     private static final String MISSING_FREELANCER_SQL = """
             SELECT 'FREELANCER' AS target_type,
@@ -246,6 +274,116 @@ public class MatchingAdminRepository {
                 findLatestRound(projectId, positionId),
                 findCountInfo(projectId, positionId),
                 findLastAiLog(projectId, positionId)
+        );
+    }
+
+    /**
+     * 진단 대상 프로젝트 목록. 착수금 결제가 끝난 것만 나온다 - 임베딩·스냅샷·라운드는 모집 시작
+     * 시점에 만들어지므로, 결제 전 프로젝트를 섞으면 정상인 건이 전부 문제처럼 보인다.
+     *
+     * @param onlyIssues true면 문제 포지션이 하나 이상인 프로젝트만
+     */
+    public PageImpl<MatchingProjectSummaryResponse> findMatchingProjects(boolean onlyIssues, Pageable pageable) {
+        String having = onlyIssues ? " HAVING SUM(" + POSITION_ISSUE_EXPRESSION + ") > 0" : "";
+        long total = count("SELECT COUNT(*) FROM ("
+                + "SELECT p.id FROM project p"
+                + " LEFT JOIN project_position pp ON pp.project_id = p.id"
+                + " WHERE p.payment_status IN (" + DEPOSIT_PAID_STATUSES + ")"
+                + " GROUP BY p.id" + having + ") counted");
+
+        List<MatchingProjectSummaryResponse> content = jdbcTemplate.query(
+                "SELECT p.id AS project_id, p.title, p.status, p.payment_status,"
+                        + " COUNT(pp.id) AS position_count,"
+                        + " COALESCE(SUM(" + POSITION_ISSUE_EXPRESSION + "), 0) AS issue_count,"
+                        + " (SELECT MAX(l.created_at) FROM ai_agent_log l"
+                        + "   WHERE l.ref_type = 'POSITION'"
+                        + "     AND l.ref_id IN (SELECT x.id FROM project_position x"
+                        + "                       WHERE x.project_id = p.id)) AS last_ai_log_at"
+                        + " FROM project p"
+                        + " LEFT JOIN project_position pp ON pp.project_id = p.id"
+                        + " WHERE p.payment_status IN (" + DEPOSIT_PAID_STATUSES + ")"
+                        + " GROUP BY p.id, p.title, p.status, p.payment_status" + having
+                        + " ORDER BY issue_count DESC, p.id DESC LIMIT ? OFFSET ?",
+                (rs, rowNum) -> new MatchingProjectSummaryResponse(
+                        rs.getLong("project_id"),
+                        rs.getString("title"),
+                        rs.getString("status"),
+                        rs.getString("payment_status"),
+                        rs.getInt("position_count"),
+                        rs.getInt("issue_count"),
+                        toLocalDateTime(rs.getTimestamp("last_ai_log_at"))
+                ),
+                pageable.getPageSize(),
+                pageable.getOffset()
+        );
+        return new PageImpl<>(content, pageable, total);
+    }
+
+    /**
+     * 프로젝트 1건의 모든 포지션 진단.
+     *
+     * <p>포지션마다 {@link #findDiagnostics(Long, Long)}와 같은 헬퍼를 다시 쓴다. 포지션 수만큼 쿼리가
+     * 나가지만(프로젝트당 보통 1~5개) 한 덩어리 SQL로 합치면 단건 조회와 판정식이 갈라질 수 있어서,
+     * 같은 값이 나오는 것을 우선했다. 관리자 진단 화면이라 호출 빈도도 낮다.
+     */
+    public MatchingProjectDiagnosticsResponse findProjectDiagnostics(Long projectId) {
+        MatchingDiagnosticsResponse.ProjectInfo project = findProjectInfo(projectId);
+        boolean projectSnapshotExists = exists("""
+                SELECT 1 FROM matching_snapshot
+                 WHERE project_id = ?
+                   AND snapshot_type = 'PROJECT'
+                 LIMIT 1
+                """, projectId);
+
+        List<MatchingProjectDiagnosticsResponse.PositionDiagnostics> positions = new ArrayList<>();
+        for (Long positionId : findPositionIds(projectId)) {
+            positions.add(buildPositionDiagnostics(projectId, positionId));
+        }
+
+        int issueCount = (int) positions.stream()
+                .filter(position -> !position.issues().isEmpty())
+                .count();
+        return new MatchingProjectDiagnosticsResponse(project, projectSnapshotExists, positions.size(),
+                issueCount, positions);
+    }
+
+    private List<Long> findPositionIds(Long projectId) {
+        return jdbcTemplate.queryForList(
+                "SELECT id FROM project_position WHERE project_id = ? ORDER BY id", Long.class, projectId);
+    }
+
+    private MatchingProjectDiagnosticsResponse.PositionDiagnostics buildPositionDiagnostics(
+            Long projectId, Long positionId) {
+        MatchingDiagnosticsResponse.SnapshotInfo snapshots = findSnapshotInfo(projectId, positionId);
+        MatchingDiagnosticsResponse.EmbeddingInfo embeddings = findEmbeddingInfo(positionId);
+        MatchingDiagnosticsResponse.RoundInfo round = findLatestRound(projectId, positionId);
+        MatchingDiagnosticsResponse.CountInfo counts = findCountInfo(projectId, positionId);
+
+        List<String> issues = new ArrayList<>();
+        if (!snapshots.positionSnapshotExists()) {
+            issues.add("POSITION_SNAPSHOT_MISSING");
+        }
+        if (!embeddings.positionEmbeddingExists()) {
+            issues.add("POSITION_EMBEDDING_MISSING");
+        }
+        if (round.roundId() == null) {
+            issues.add("ROUND_MISSING");
+        } else if (counts.exposedCandidateCount() == 0) {
+            // 라운드가 없으면 노출 후보가 0인 게 당연하다. 원인이 하나인데 두 줄로 보이면
+            // 목록의 issueCount가 부풀어 우선순위 판단을 흐린다.
+            issues.add("NO_EXPOSED_CANDIDATE");
+        }
+
+        return new MatchingProjectDiagnosticsResponse.PositionDiagnostics(
+                findPositionInfo(positionId),
+                snapshots.positionSnapshotExists(),
+                embeddings.positionEmbeddingExists(),
+                embeddings.positionModel(),
+                embeddings.freelancerEmbeddingCount(),
+                round,
+                counts,
+                findLastAiLog(projectId, positionId),
+                issues
         );
     }
 

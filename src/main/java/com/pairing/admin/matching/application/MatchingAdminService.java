@@ -6,6 +6,8 @@ import com.pairing.admin.matching.infrastructure.persistence.MatchingAdminReposi
 import com.pairing.admin.matching.presentation.api.response.AiLogResponse;
 import com.pairing.admin.matching.presentation.api.response.EmbeddingMissingResponse;
 import com.pairing.admin.matching.presentation.api.response.MatchingDiagnosticsResponse;
+import com.pairing.admin.matching.presentation.api.response.MatchingProjectDiagnosticsResponse;
+import com.pairing.admin.matching.presentation.api.response.MatchingProjectSummaryResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageImpl;
@@ -98,6 +100,19 @@ public class MatchingAdminService {
     @Transactional(readOnly = true)
     public MatchingDiagnosticsResponse findDiagnostics(Long projectId, Long positionId) {
         return matchingAdminRepository.findDiagnostics(projectId, positionId);
+    }
+
+    /** 진단 대상 프로젝트 목록. 착수금 결제가 끝난 것만 나온다. */
+    @Transactional(readOnly = true)
+    public PageResponse<MatchingProjectSummaryResponse> findMatchingProjects(boolean onlyIssues,
+                                                                            Pageable pageable) {
+        return PageResponse.from(matchingAdminRepository.findMatchingProjects(onlyIssues, pageable));
+    }
+
+    /** 프로젝트 1건의 모든 포지션 진단. 포지션 하나를 깊게 볼 때는 {@link #findDiagnostics}를 쓴다. */
+    @Transactional(readOnly = true)
+    public MatchingProjectDiagnosticsResponse findProjectDiagnostics(Long projectId) {
+        return matchingAdminRepository.findProjectDiagnostics(projectId);
     }
 
     private void reindexFreelancerNow(Long freelancerId) {

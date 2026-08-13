@@ -6,6 +6,8 @@ import com.pairing.admin.matching.presentation.api.MatchingAdminController;
 import com.pairing.admin.matching.presentation.api.response.AiLogResponse;
 import com.pairing.admin.matching.presentation.api.response.EmbeddingMissingResponse;
 import com.pairing.admin.matching.presentation.api.response.MatchingDiagnosticsResponse;
+import com.pairing.admin.matching.presentation.api.response.MatchingProjectDiagnosticsResponse;
+import com.pairing.admin.matching.presentation.api.response.MatchingProjectSummaryResponse;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.domain.PageImpl;
@@ -116,5 +118,59 @@ class MatchingAdminControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("MATCHING_DIAGNOSTICS_FOUND"))
                 .andExpect(jsonPath("$.data.project.projectId").value(23));
+    }
+
+    @Test
+    @DisplayName("finds diagnostics target projects")
+    void findMatchingProjects() throws Exception {
+        PageRequest pageable = PageRequest.of(0, 20);
+        MatchingProjectSummaryResponse item = new MatchingProjectSummaryResponse(
+                23L, "Project", "RECRUITING", "DEPOSIT_PAID", 2, 1, LocalDateTime.now());
+        when(matchingAdminService.findMatchingProjects(eq(false), any()))
+                .thenReturn(PageResponse.from(new PageImpl<>(List.of(item), pageable, 1)));
+
+        mockMvc.perform(get("/api/v1/admin/matchings/projects"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("MATCHING_PROJECTS_FOUND"))
+                .andExpect(jsonPath("$.data.content[0].projectId").value(23))
+                .andExpect(jsonPath("$.data.content[0].issueCount").value(1));
+    }
+
+    @Test
+    @DisplayName("passes onlyIssues through")
+    void findMatchingProjectsWithOnlyIssues() throws Exception {
+        PageRequest pageable = PageRequest.of(0, 20);
+        when(matchingAdminService.findMatchingProjects(eq(true), any()))
+                .thenReturn(PageResponse.from(new PageImpl<>(List.of(), pageable, 0)));
+
+        mockMvc.perform(get("/api/v1/admin/matchings/projects").param("onlyIssues", "true"))
+                .andExpect(status().isOk());
+
+        verify(matchingAdminService).findMatchingProjects(eq(true), any());
+    }
+
+    @Test
+    @DisplayName("finds diagnostics for every position of a project")
+    void findProjectDiagnostics() throws Exception {
+        MatchingProjectDiagnosticsResponse.PositionDiagnostics position =
+                new MatchingProjectDiagnosticsResponse.PositionDiagnostics(
+                        new MatchingDiagnosticsResponse.PositionInfo(33L, "RECRUITING", "DEVELOPMENT", "BACKEND"),
+                        true, false, null, 46,
+                        new MatchingDiagnosticsResponse.RoundInfo(null, null, null, null),
+                        new MatchingDiagnosticsResponse.CountInfo(0, 0, 0),
+                        new MatchingDiagnosticsResponse.LastAiLogInfo(null, null, null),
+                        List.of("POSITION_EMBEDDING_MISSING", "ROUND_MISSING")
+                );
+        MatchingProjectDiagnosticsResponse response = new MatchingProjectDiagnosticsResponse(
+                new MatchingDiagnosticsResponse.ProjectInfo(23L, "Project", "RECRUITING", "DEPOSIT_PAID"),
+                true, 1, 1, List.of(position));
+        when(matchingAdminService.findProjectDiagnostics(23L)).thenReturn(response);
+
+        mockMvc.perform(get("/api/v1/admin/matchings/projects/23/diagnostics"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("MATCHING_PROJECT_DIAGNOSTICS_FOUND"))
+                .andExpect(jsonPath("$.data.issueCount").value(1))
+                .andExpect(jsonPath("$.data.positions[0].position.positionId").value(33))
+                .andExpect(jsonPath("$.data.positions[0].issues[0]").value("POSITION_EMBEDDING_MISSING"));
     }
 }

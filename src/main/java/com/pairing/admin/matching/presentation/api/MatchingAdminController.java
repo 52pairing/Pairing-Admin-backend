@@ -6,6 +6,8 @@ import com.pairing.admin.matching.application.MatchingAdminService;
 import com.pairing.admin.matching.presentation.api.response.AiLogResponse;
 import com.pairing.admin.matching.presentation.api.response.EmbeddingMissingResponse;
 import com.pairing.admin.matching.presentation.api.response.MatchingDiagnosticsResponse;
+import com.pairing.admin.matching.presentation.api.response.MatchingProjectDiagnosticsResponse;
+import com.pairing.admin.matching.presentation.api.response.MatchingProjectSummaryResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -90,8 +92,33 @@ public class MatchingAdminController {
         return ResponseEntity.ok(ApiResponse.success("AI_LOGS_FOUND", "Lookup succeeded.", response));
     }
 
+    @GetMapping("/projects")
+    @Operation(summary = "Find matching diagnostics target projects",
+            description = "Deposit-paid projects only. Embeddings, snapshots and rounds are created when "
+                    + "recruiting starts, so projects before payment have none of them by design. "
+                    + "onlyIssues=true keeps only projects that have at least one problematic position.")
+    public ResponseEntity<ApiResponse<PageResponse<MatchingProjectSummaryResponse>>> findMatchingProjects(
+            @RequestParam(defaultValue = "false") boolean onlyIssues,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size
+    ) {
+        Pageable pageable = PageRequest.of(page, size);
+        return ResponseEntity.ok(ApiResponse.success("MATCHING_PROJECTS_FOUND", "Lookup succeeded.",
+                matchingAdminService.findMatchingProjects(onlyIssues, pageable)));
+    }
+
+    @GetMapping("/projects/{projectId}/diagnostics")
+    @Operation(summary = "Find matching diagnostics for every position of a project",
+            description = "Use this for the project detail view. For a single position use GET /diagnostics.")
+    public ResponseEntity<ApiResponse<MatchingProjectDiagnosticsResponse>> findProjectDiagnostics(
+            @PathVariable Long projectId
+    ) {
+        return ResponseEntity.ok(ApiResponse.success("MATCHING_PROJECT_DIAGNOSTICS_FOUND", "Lookup succeeded.",
+                matchingAdminService.findProjectDiagnostics(projectId)));
+    }
+
     @GetMapping("/diagnostics")
-    @Operation(summary = "Find matching diagnostics")
+    @Operation(summary = "Find matching diagnostics for one position")
     public ResponseEntity<ApiResponse<MatchingDiagnosticsResponse>> findDiagnostics(
             @RequestParam Long projectId,
             @RequestParam Long positionId
