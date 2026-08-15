@@ -123,6 +123,16 @@ ai:
     base-url: ${PAIRING_PYTHON_BASE_URL:http://localhost:8000}
     internal-api-key: ${INTERNAL_API_KEY:}
 
+pairing-backend:
+  # 사용자 서버(Pairing-backend). 알림 생성을 여기에 맡긴다.
+  #
+  # DB 에 직접 넣지 않는 이유: WebSocket 세션을 사용자 서버가 들고 있어서, 이 서버가 행만
+  # 넣으면 실시간 push 가 안 나간다. 사용자가 새로고침해야 알림이 보인다.
+  base-url: ${PAIRING_BACKEND_BASE_URL:http://localhost:8080}
+  # AI 서버와 같은 내부 호출 키를 쓴다. 사용자 서버도 같은 값을 갖고 있어야 한다.
+  # 비어 있으면 사용자 서버가 403 으로 막는다(알림만 빠지고 답변 등록은 정상 진행).
+  internal-api-key: ${INTERNAL_API_KEY:}
+
 cloud:
   aws:
     s3:

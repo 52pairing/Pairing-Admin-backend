@@ -3,6 +3,7 @@ package com.pairing.admin.support;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pairing.admin.auth.infrastructure.persistence.AdminUserJpaEntity;
 import com.pairing.admin.auth.infrastructure.persistence.AdminUserJpaRepository;
+import com.pairing.admin.notification.infrastructure.client.PairingBackendNotificationClient;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -16,12 +17,18 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.jdbc.Sql;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MvcResult;
 
 import java.time.LocalDateTime;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -58,6 +65,10 @@ class InquiryAdminFlowTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    /** 사용자 서버 호출은 목으로 막는다. 테스트에서 진짜 HTTP 를 쏘면 서버가 떠 있어야 한다. */
+    @MockitoBean
+    private PairingBackendNotificationClient notificationClient;
+
     private MockHttpSession session;
     private Long pendingInquiryId;
     private Long answeredInquiryId;
@@ -66,7 +77,6 @@ class InquiryAdminFlowTest {
     void setUp() throws Exception {
         jdbcTemplate.update("DELETE FROM inquiry_file");
         jdbcTemplate.update("DELETE FROM inquiry");
-        jdbcTemplate.update("DELETE FROM notification");
         jdbcTemplate.update("DELETE FROM account");
         adminUserJpaRepository.deleteAll();
 
@@ -168,8 +178,8 @@ class InquiryAdminFlowTest {
     }
 
     @Test
-    @DisplayName("답변을 등록하면 상태가 ANSWERED 로 바뀌고 작성자에게 알림이 남는다")
-    void answerChangesStatusAndWritesNotification() throws Exception {
+    @DisplayName("답변을 등록하면 상태가 ANSWERED 로 바뀌고 작성자에게 알림 생성을 요청한다")
+    void answerChangesStatusAndRequestsNotification() throws Exception {
         mockMvc.perform(post("/api/v1/admin/inquiries/" + pendingInquiryId + "/answer")
                         .session(session)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -180,13 +190,14 @@ class InquiryAdminFlowTest {
                 .andExpect(jsonPath("$.data.answererName").value("페어링 고객지원"))
                 .andExpect(jsonPath("$.data.answeredAt").exists());
 
-        Map<String, Object> notification = jdbcTemplate.queryForMap(
-                "SELECT owner_account_id, type, link_url, read FROM notification");
-
-        assertThat(notification.get("owner_account_id")).isEqualTo(301L);
-        assertThat(notification.get("type")).isEqualTo("INQUIRY_ANSWERED");
-        assertThat(notification.get("link_url")).isEqualTo("/support/inquiries/" + pendingInquiryId);
-        assertThat(notification.get("read")).isEqualTo(false);
+        // 알림은 이 서버가 DB 에 넣지 않고 사용자 서버에 맡긴다. 그쪽이 저장과 실시간 push 를
+        // 함께 처리한다. 그래서 검증 대상이 notification 테이블이 아니라 호출 내용이다.
+        verify(notificationClient).create(
+                eq(301L),
+                eq("INQUIRY_ANSWERED"),
+                eq("문의하신 내용에 답변이 등록되었습니다."),
+                any(),
+                eq("/support/inquiries/" + pendingInquiryId));
     }
 
     @Test
@@ -199,8 +210,25 @@ class InquiryAdminFlowTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.answer").value("추가 안내드립니다."));
 
-        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM notification", Long.class))
-                .isEqualTo(1);
+        verify(notificationClient, times(1)).create(
+                eq(302L), eq("INQUIRY_ANSWERED"), any(), any(),
+                eq("/support/inquiries/" + answeredInquiryId));
+    }
+
+    @Test
+    @DisplayName("알림 생성이 실패해도 답변 등록은 성공한다")
+    void answerSucceedsEvenIfNotificationFails() throws Exception {
+        // 사용자 서버 배포 중이거나 키가 어긋나면 이 호출이 터진다. 그때 답변까지 롤백되면
+        // 관리자는 버튼을 눌러도 아무 일이 안 일어나는 것처럼 보인다.
+        doThrow(new RuntimeException("사용자 서버 응답 없음"))
+                .when(notificationClient).create(any(), any(), any(), any(), any());
+
+        mockMvc.perform(post("/api/v1/admin/inquiries/" + pendingInquiryId + "/answer")
+                        .session(session)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of("answer", "확인 후 안내드립니다."))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("ANSWERED"));
     }
 
     @Test
